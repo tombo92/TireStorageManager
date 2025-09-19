@@ -22,6 +22,7 @@ TRANSLATIONS = {
     "export_excel": {"en": "Export Excel", "de": "Excel Export"},
     "backup_now": {"en": "Backup Now", "de": "Backup Jetzt"},
     "customer_name": {"en": "Customer Name", "de": "Kundenname"},
+    "licence_plate": {"en": "Licence Plate", "de": "Kennzeichen"},
     "location": {"en": "Location", "de": "Lagerplatz"},
     "season": {"en": "Season", "de": "Saison"},
     "winter": {"en": "Winter", "de": "Winter"},

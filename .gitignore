@@ -18,6 +18,7 @@ lib64/
 parts/
 sdist/
 var/
+dist/
 wheels/
 share/python-wheels/
 *.egg-info/
@@ -204,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Databases
+*.db

@@ -13,5 +13,6 @@ class WheelRecord:
     """Represents a stored wheel set for a customer."""
     id: Optional[int]        # Primary key in DB (None for new records)
     customer_name: str       # Name of the customer
+    licence_plate: str       # licence plate number of the customer
     location: str            # Storage location (shelf, position, etc.)
     season: Season           # Tire season (Winter/Summer/Allseason)

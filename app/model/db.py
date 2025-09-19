@@ -18,11 +18,13 @@ class Database:
             CREATE TABLE IF NOT EXISTS wheels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 customer_name TEXT NOT NULL,
+                licence_plate TEXT NOT NULL,
                 location TEXT NOT NULL,
                 season TEXT NOT NULL CHECK(season IN ('winter','summer','allseason'))
             );
         """)
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_customer_name ON wheels(customer_name);")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_licence_plate ON wheels(licence_plate);")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_location ON wheels(location);")
         self.conn.commit()
 

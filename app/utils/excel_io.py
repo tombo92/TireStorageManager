@@ -29,6 +29,7 @@ def read_excel(path: str) -> List[WheelRecord]:
         rec = WheelRecord(
             id=None,
             customer_name=str(row[cols["customer_name"]]).strip(),
+            licence_plate=str(row[cols["licence_plate"]]).strip(),
             location=str(row[cols["location"]]).strip(),
             season=season
         )
@@ -39,6 +40,7 @@ def export_excel(path: str, records: List[WheelRecord]) -> None:
     """Export wheel records to an Excel file."""
     df = pd.DataFrame([{
         "customer_name": r.customer_name,
+        "licence_plate": r.licence_plate,
         "location": r.location,
         "season": r.season.value
     } for r in records])

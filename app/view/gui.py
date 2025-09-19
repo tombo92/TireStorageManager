@@ -94,7 +94,7 @@ class AppGUI(tk.Tk):
         ttk.Button(top, text=t("backup_now"), command=self._backup_now).pack(side=tk.RIGHT)
 
         # Table
-        cols = ("id", "customer_name", "location", "season")
+        cols = ("id", "customer_name", "licence_plate", "location", "season")
         self.tree = ttk.Treeview(self, columns=cols, show="headings")
         for c in cols:
             self.tree.heading(c, text=t(c) if c != "id" else "ID")
@@ -130,9 +130,9 @@ class AppGUI(tk.Tk):
         if rid is None: return
         item = self.tree.item(self.tree.selection()[0], "values")
         self._record_dialog(title=t("edit"), record_id=rid,
-                            customer=item[1], location=item[2], season=item[3])
+                            customer=item[1], licence=item[2], location=item[3], season=item[4])
 
-    def _record_dialog(self, title, record_id=None, customer="", location="", season="winter"):
+    def _record_dialog(self, title, record_id=None, customer="", licence="", location="", season="winter"):
         win = tk.Toplevel(self)
         win.title(title)
         win.grab_set()
@@ -141,15 +141,19 @@ class AppGUI(tk.Tk):
         name_var = tk.StringVar(value=customer)
         ttk.Entry(win, textvariable=name_var, width=40).grid(row=0, column=1, padx=6, pady=6)
 
-        ttk.Label(win, text=t("location")).grid(row=1, column=0, sticky="e", padx=6, pady=6)
-        loc_var = tk.StringVar(value=location)
-        ttk.Entry(win, textvariable=loc_var, width=40).grid(row=1, column=1, padx=6, pady=6)
+        ttk.Label(win, text=t("licence_plate")).grid(row=1, column=0, sticky="e", padx=6, pady=6)
+        licence_var = tk.StringVar(value=licence)
+        ttk.Entry(win, textvariable=licence_var, width=40).grid(row=1, column=1, padx=6, pady=6)
 
-        ttk.Label(win, text=t("season")).grid(row=2, column=0, sticky="e", padx=6, pady=6)
+        ttk.Label(win, text=t("location")).grid(row=2, column=0, sticky="e", padx=6, pady=6)
+        loc_var = tk.StringVar(value=location)
+        ttk.Entry(win, textvariable=loc_var, width=40).grid(row=2, column=1, padx=6, pady=6)
+
+        ttk.Label(win, text=t("season")).grid(row=3, column=0, sticky="e", padx=6, pady=6)
         season_var = tk.StringVar(value=season or "winter")
         ttk.Combobox(win, textvariable=season_var,
                      values=[t(s.value) for s in Season], state="readonly")\
-            .grid(row=2, column=1, padx=6, pady=6)
+            .grid(row=3, column=1, padx=6, pady=6)
 
         def on_ok():
             try:
@@ -162,8 +166,8 @@ class AppGUI(tk.Tk):
             except Exception as e:
                 messagebox.showerror(t("title"), str(e))
 
-        ttk.Button(win, text=t("save"), command=on_ok).grid(row=3, column=0, padx=6, pady=10)
-        ttk.Button(win, text=t("cancel"), command=win.destroy).grid(row=3, column=1, padx=6, pady=10)
+        ttk.Button(win, text=t("save"), command=on_ok).grid(row=4, column=0, padx=6, pady=10)
+        ttk.Button(win, text=t("cancel"), command=win.destroy).grid(row=4, column=1, padx=6, pady=10)
 
     # --------------------------
     # Delete

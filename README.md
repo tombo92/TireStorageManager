@@ -1,5 +1,7 @@
-
 # 🚗 TireStorage Manager
+
+[![CI - Tests](https://github.com/tombo92/TireStorageManager/actions/workflows/ci.yml/badge.svg)](https://github.com/johndoe/TireStorageManager/actions/workflows/ci.yml)
+
 
 **Keep your customers’ tires organized — hassle-free.**
 

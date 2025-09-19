@@ -65,7 +65,7 @@ class AppController:
         """
         return self.repo.list(filter_text)
 
-    def add_record(self, customer_name: str, location: str, season: str) -> int:
+    def add_record(self, customer_name: str, location: str, season: str, licence_plate: str) -> int:
         """
         Add a new tire storage record.
 
@@ -77,6 +77,8 @@ class AppController:
             The storage location identifier.
         season : str
             The season ("winter", "summer", or "allseason").
+        licence_plate : str
+            Customer's licence plate number.
 
         Returns
         -------
@@ -85,9 +87,9 @@ class AppController:
         """
         season_enum = self._validate_season(season)
         with WriteLock(self._lock_path):
-            return self.repo.add(WheelRecord(None, customer_name.strip(), location.strip(), season_enum))
+            return self.repo.add(WheelRecord(None, customer_name.strip(), location.strip(), season_enum, licence_plate.strip()))
 
-    def update_record(self, record_id: int, customer_name: str, location: str, season: str) -> None:
+    def update_record(self, record_id: int, customer_name: str, location: str, season: str, licence_plate: str) -> None:
         """
         Update an existing tire storage record.
 
@@ -101,10 +103,12 @@ class AppController:
             Updated storage location.
         season : str
             Updated season ("winter", "summer", or "allseason").
+        licence_plate : str
+            Customer's licence plate number.
         """
         season_enum = self._validate_season(season)
         with WriteLock(self._lock_path):
-            self.repo.update(WheelRecord(record_id, customer_name.strip(), location.strip(), season_enum))
+            self.repo.update(WheelRecord(record_id, customer_name.strip(), location.strip(), season_enum, licence_plate.strip()))
 
     def delete_record(self, record_id: int) -> None:
         """
