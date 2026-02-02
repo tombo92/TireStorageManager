@@ -61,6 +61,14 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# SQLite DB + journaling
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+
 # Flask stuff:
 instance/
 .webassets-cache
@@ -205,3 +213,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-specific (Brandherm – Reifenmanager)
+wheel_storage.db
+wheel_storage*.db
+backups/
+# CSV snapshots may contain PII (customer names/plates)
+# Comment this out if you DO want to version CSVs.
+*.csv
+
+
