@@ -42,7 +42,7 @@ from jinja2 import DictLoader
 # ------------------------------------------------------------
 # Konfiguration
 # ------------------------------------------------------------
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 APP_NAME = "Brandherm - Reifenmanager"
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
