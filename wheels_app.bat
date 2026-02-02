@@ -45,6 +45,28 @@ if "%PYEXE%"=="" (
 )
 echo [OK] Using %PYEXE%
 
+REM =================================================
+REM UPDATE (run updater.py before venv/pip/app)
+REM =================================================
+if exist "updater.py" (
+  echo [INFO] Running updater...
+  if /i "%PYEXE%"=="py.exe" (
+    "%PYEXE%" -3 "updater.py"
+  ) else (
+    "%PYEXE%" "updater.py"
+  )
+  set "UP_RC=%ERRORLEVEL%"
+  if "%UP_RC%"=="10" (
+    echo [INFO] Code updated. Continuing with environment and start...
+  ) else if not "%UP_RC%"=="0" (
+    echo [WARN] Updater returned %UP_RC%. Continuing anyway...
+  ) else (
+    echo [OK] No update needed.
+  )
+) else (
+  echo [INFO] updater.py not found; skipping update check.
+)
+
 REM ---- Create venv if missing ----
 if not exist "%VENV_PY%" (
   echo [INFO] Creating virtual environment at "%VENV_DIR%" ...
