@@ -1,5 +1,8 @@
-# wheels_manager.py
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# @Date    : 2026-02-03 06:54:54
+# @Author  : Tom Brandherm (https://github.com/tombo92)
+# @Link    : https://github.com/tombo92/TireStorageManager
 """
 Brandherm - Reifenmanager (Sommer/Winter) - Ein-Datei-Web-App
 - Deutsche moderne UI (Bootstrap 5), Version im Navbar
@@ -17,7 +20,9 @@ Start:
 Zugriff im LAN:
     http://<SERVER-IP>:5000
 """
-
+# ========================================================
+# IMPORTS
+# ========================================================
 import os
 import re
 import threading
@@ -38,95 +43,19 @@ from sqlalchemy import (
 from sqlalchemy.orm import sessionmaker, declarative_base, scoped_session
 from sqlalchemy.exc import IntegrityError
 
-# ------------------------------------------------------------
-# Konfiguration
-# ------------------------------------------------------------
-VERSION = "1.0.3"
-APP_NAME = "Brandherm - Reifenmanager"
+# --------------------------------------------------------
+# Local Imports
+# --------------------------------------------------------
+from config import VERSION, APP_NAME, DB_PATH, BACKUP_DIR, SECRET_KEY, HOST, PORT
+from db import engine, SessionLocal
+from models import WheelSet, Settings, AuditLog
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DB_PATH = os.path.join(BASE_DIR, "wheel_storage.db")
-BACKUP_DIR = os.path.join(BASE_DIR, "backups")
-os.makedirs(BACKUP_DIR, exist_ok=True)
-
-SECRET_KEY = os.environ.get("WHEELS_SECRET_KEY", "change-me-please")  # In Produktion via ENV setzen!
-HOST = "0.0.0.0"
-PORT = 5000
 
 # ------------------------------------------------------------
 # Flask-App
 # ------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
-
-# ------------------------------------------------------------
-# DB / SQLAlchemy
-# ------------------------------------------------------------
-DATABASE_URL = f"sqlite:///{DB_PATH}"
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    future=True,
-    connect_args={"check_same_thread": False},  # Threads erlauben
-)
-
-Base = declarative_base()
-SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
-
-# SQLite Pragmas for durability/concurrency/security
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute("PRAGMA journal_mode=WAL;")
-        cursor.execute("PRAGMA foreign_keys=ON;")
-        cursor.execute("PRAGMA secure_delete=ON;")
-    finally:
-        cursor.close()
-
-# ------------------------------------------------------------
-# Modelle
-# ------------------------------------------------------------
-class WheelSet(Base):
-    __tablename__ = "wheel_sets"
-
-    id = Column(Integer, primary_key=True)
-    customer_name = Column(String(200), nullable=False, index=True)  # Kundenname
-    license_plate = Column(String(50), nullable=False, index=True)   # Kennzeichen
-    car_type = Column(String(200), nullable=False, index=True)       # Fahrzeugtyp
-    note = Column(Text, nullable=True)                               # Notiz
-    storage_position = Column(String(20), nullable=False, unique=True, index=True)  # Lagerposition
-
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("storage_position", name="uq_storage_position"),
-    )
-
-
-class Settings(Base):
-    __tablename__ = "settings"
-
-    id = Column(Integer, primary_key=True)
-    backup_interval_minutes = Column(Integer, nullable=False, default=60)  # Intervall in Minuten
-    backup_copies = Column(Integer, nullable=False, default=10)            # wie viele Sicherungen behalten
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-
-
-class AuditLog(Base):
-    __tablename__ = "audit_log"
-
-    id = Column(Integer, primary_key=True)
-    action = Column(String(50), nullable=False)  # 'create', 'update', 'delete', 'backup'
-    wheelset_id = Column(Integer, nullable=True) # optional (bei backup None)
-    details = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-
-
-Base.metadata.create_all(bind=engine)
 
 # ------------------------------------------------------------
 # Positionslogik (Validierung & Liste)
