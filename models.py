@@ -76,3 +76,10 @@ class AuditLog(Base):
     details = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         nullable=False)
+
+
+class DisabledPosition(Base):
+    __tablename__ = "disabled_positions"
+    code = Column(String(20), primary_key=True, index=True)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
