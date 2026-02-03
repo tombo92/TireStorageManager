@@ -53,6 +53,7 @@ from models import WheelSet, Settings, AuditLog
 from positions import (is_valid_position, SORTED_POSITIONS,
                        get_occupied_positions, first_free_position,
                        free_positions)
+from utils import get_csrf_token, validate_csrf
 
 
 
@@ -61,23 +62,6 @@ from positions import (is_valid_position, SORTED_POSITIONS,
 # ------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
-
-# ------------------------------------------------------------
-# CSRF (leichter eigener Schutz)
-# ------------------------------------------------------------
-def get_csrf_token():
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(16)
-        session["_csrf_token"] = token
-    return token
-
-def validate_csrf():
-    token = session.get("_csrf_token")
-    form_token = request.form.get("_csrf_token")
-    if not token or not form_token or token != form_token:
-        abort(400, description="Ungültiges CSRF-Token.")
-
 app.jinja_env.globals["csrf_token"] = get_csrf_token
 app.jinja_env.globals["APP_VERSION"] = VERSION
 app.jinja_env.globals["APP_NAME"] = APP_NAME
