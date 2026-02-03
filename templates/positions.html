@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<h3><i class="bi bi-grid-3x3-gap"></i> Positionen</h3>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h5 class="card-title">Freie Position finden</h5>
+        {% if next_free %}
+        <p>Nächste freie Position: <span class="badge text-bg-success pos-badge">{{ next_free }}</span></p>
+        <a class="btn btn-success" href="{{ url_for('create_wheelset', suggested=next_free) }}"><i
+                class="bi bi-plus-lg"></i> Radsatz hier anlegen</a>
+        {% else %}
+        <p class="text-danger">Keine freien Positionen vorhanden.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title">Alle freien Positionen ({{ free_positions|length }})</h5>
+        {% if free_positions %}
+        {% for p in free_positions %}
+        <span class="badge text-bg-secondary pos-badge me-1 mb-1">{{ p }}</span>
+        {% endfor %}
+        {% else %}
+        <p>Keine freien Positionen.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
