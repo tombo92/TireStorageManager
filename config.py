@@ -23,7 +23,7 @@ DB_PATH = str(BASE_DIR / "wheel_storage.db")
 BACKUP_DIR = str(BASE_DIR / "backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
-# In Produktion via ENV setzen!
+# Set Production via ENV!
 SECRET_KEY = os.environ.get("WHEELS_SECRET_KEY", "change-me-please")
 HOST = "0.0.0.0"
 PORT = 5000
