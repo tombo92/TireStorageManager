@@ -10,7 +10,7 @@ REM =================================================
 
 cd /d "%~dp0"
 
-set "APP_FILE=wheels_manager.py"
+set "APP_FILE=run.py"
 set "REQ_FILE=requirements.txt"
 set "VENV_DIR=.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
