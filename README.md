@@ -15,6 +15,30 @@ A lightweight, single‑file Flask web app to manage customer tire sets (Sommer/
 - **CSV snapshots** (UTF‑8 with BOM; Excel‑friendly) and download view for DB/CSV backups. [1](https://msasafety-my.sharepoint.com/personal/03brandhet37_msasafety_com/Documents/Microsoft%20Copilot-Chatdateien/wheels_manager.py)
 - **SQLite safety**: WAL mode, foreign keys, secure_delete. [1](https://msasafety-my.sharepoint.com/personal/03brandhet37_msasafety_com/Documents/Microsoft%20Copilot-Chatdateien/wheels_manager.py)
 
+### Project Structure
+
+```plaintext
+├─ app.py               (app factory)
+├─ routes.py            (all Flask routes)
+├─ backup_manager.py
+├─ config.py
+├─ db.py
+├─ models.py
+├─ positions.py
+├─ utils.py
+├─ run.py               (entry point)
+├─ templates/
+│  ├─ base.html
+│  ├─ index.html
+│  ├─ wheelsets_list.html
+│  ├─ wheelset_form.html
+│  ├─ delete_confirm.html
+│  ├─ positions.html
+│  ├─ settings.html
+│  └─ backups.html
+└─ backups/             (auto-created)
+```
+
 ---
 
 ## Quick Start (Windows)

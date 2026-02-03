@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block content %}
+<h3>{{ 'Radsatz bearbeiten' if editing else 'Neuen Radsatz anlegen' }}</h3>
+<form method="post" class="row g-3">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="col-md-6">
+        <label class="form-label">Kundenname *</label>
+        <input type="text" class="form-control" name="customer_name" required
+            value="{{ w.customer_name if w else '' }}">
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Kennzeichen *</label>
+        <input type="text" class="form-control" name="license_plate" required
+            value="{{ w.license_plate if w else '' }}">
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Fahrzeugtyp *</label>
+        <input type="text" class="form-control" name="car_type" required value="{{ w.car_type if w else '' }}">
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Position *</label>
+        <select class="form-select" name="storage_position" required>
+            {% if suggested and not editing %}
+            <option value="{{ suggested }}">{{ suggested }} (Vorschlag)</option>
+            {% endif %}
+            <optgroup label="Container">
+                {% for p in positions if p.startswith('C') %}
+                <option value="{{ p }}" {% if w and w.storage_position==p %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </optgroup>
+            <optgroup label="Garage">
+                {% for p in positions if p.startswith('GR') %}
+                <option value="{{ p }}" {% if w and w.storage_position==p %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </optgroup>
+        </select>
+        <div class="form-text">Nur gültige, freie Positionen auswählen.</div>
+    </div>
+    <div class="col-12">
+        <label class="form-label">Notiz (optional)</label>
+        <textarea class="form-control" name="note" rows="3">{{ w.note if w else '' }}</textarea>
+    </div>
+    <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Speichern</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">Abbrechen</a>
+    </div>
+</form>
+{% endblock %}
