@@ -19,11 +19,25 @@
     <div class="card-body">
         <h5 class="card-title">Alle freien Positionen ({{ free_positions|length }})</h5>
         {% if free_positions %}
-        {% for p in free_positions %}
-        <span class="badge text-bg-secondary pos-badge me-1 mb-1">{{ p }}</span>
-        {% endfor %}
+            {% for p in free_positions %}
+                <span class="badge text-bg-secondary pos-badge me-1 mb-1">{{ p }}</span>
+            {% endfor %}
         {% else %}
         <p>Keine freien Positionen.</p>
+        {% endif %}
+    </div>
+</div>
+
+<hr>
+<div class="card mt-3">
+    <div class="card-body">
+        <h5 class="card-title">Gesperrte Positionen ({{ disabled_positions|length }})</h5>
+        {% if disabled_positions %}
+            {% for p in disabled_positions %}
+                <span class="badge text-bg-dark pos-badge me-1 mb-1">{{ p }}</span>
+            {% endfor %}
+        {% else %}
+        <p>Keine gesperrten Positionen.</p>
         {% endif %}
     </div>
 </div>

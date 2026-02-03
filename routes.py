@@ -21,10 +21,13 @@ from sqlalchemy.exc import IntegrityError
 # --------------------------------------------------------
 from db import SessionLocal
 from models import WheelSet, Settings, AuditLog
+
 from positions import (
     is_valid_position, SORTED_POSITIONS, get_occupied_positions,
-    first_free_position, free_positions
+    first_free_position, free_positions, get_disabled_positions,
+    is_usable_position, position_sort_key
 )
+
 from utils import validate_csrf
 # for route use (CSV)
 from backup_manager import BackupManager, export_csv_snapshot
@@ -92,7 +95,9 @@ def register_routes(app):
             suggested = request.args.get("suggested") \
                 if request.method == "GET" else None
             occupied = get_occupied_positions(db)
-            pos_choices = [p for p in SORTED_POSITIONS if p not in occupied]
+            disabled = get_disabled_positions(db)
+            pos_choices = [p for p in SORTED_POSITIONS
+                           if p not in occupied and p not in disabled]
 
             if request.method == "POST":
                 validate_csrf()
@@ -110,6 +115,10 @@ def register_routes(app):
 
                 if not is_valid_position(storage_position):
                     flash("Ungültige Position.", "error")
+                    return redirect(url_for("create_wheelset"))
+
+                if not is_usable_position(db, storage_position):
+                    flash("Position ist gesperrt und kann nicht verwendet werden.", "error")
                     return redirect(url_for("create_wheelset"))
 
                 if storage_position in occupied:
@@ -156,7 +165,13 @@ def register_routes(app):
 
             occupied = get_occupied_positions(db)
             occupied.discard(w.storage_position)
-            pos_choices = [p for p in SORTED_POSITIONS if p not in occupied]
+            disabled = get_disabled_positions(db)
+            # Current position may be disabled later;
+            # keep it selectable for editing,
+            # but disallow changing to other disabled ones.
+            pos_choices = [p for p in SORTED_POSITIONS if
+                           (p not in occupied) and (p not in disabled or p == w.storage_position)]
+
 
             if request.method == "POST":
                 validate_csrf()
@@ -179,6 +194,15 @@ def register_routes(app):
                 if storage_position in occupied:
                     flash("Position ist bereits belegt.", "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
+
+                # Allow keeping current position even if disabled after assignment;
+                # block switching to any disabled position
+                if ((storage_position != w.storage_position) and
+                    not is_usable_position(db, storage_position)):
+                    flash("Zielposition ist gesperrt und kann nicht verwendet werden.",
+                          "error")
+                    return redirect(url_for("edit_wheelset", wid=wid))
+
 
                 old_pos = w.storage_position
                 w.customer_name = customer_name
@@ -247,8 +271,12 @@ def register_routes(app):
         try:
             nf = first_free_position(db)
             fp = free_positions(db)
-            return render_template("positions.html", next_free=nf,
-                                   free_positions=fp, active="positions")
+            disabled = sorted(get_disabled_positions(db), key=position_sort_key)
+            return render_template("positions.html",
+                                   next_free=nf,
+                                   free_positions=fp,
+                                   disabled_positions=disabled,
+                                   active="positions")
         finally:
             db.close()
 

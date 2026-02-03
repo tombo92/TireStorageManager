@@ -20,7 +20,8 @@ A lightweight, single‑file Flask web app to manage customer tire sets (Sommer/
 ```plaintext
 ├─ app.py               (app factory)
 ├─ routes.py            (all Flask routes)
-├─ backup_manager.py
+├─ quick_disable.py     (small tool to enable/disable positions)
+├─ backup_manager.py    (background thread)
 ├─ config.py
 ├─ db.py
 ├─ models.py
