@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<h3><i class="bi bi-gear"></i> Einstellungen</h3>
+<form method="post" class="row g-3">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="col-md-4">
+        <label class="form-label">Backup-Intervall (Minuten)</label>
+        <input type="number" min="1" class="form-control" name="backup_interval_minutes"
+            value="{{ s.backup_interval_minutes }}">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">Anzahl Sicherungskopien</label>
+        <input type="number" min="1" class="form-control" name="backup_copies" value="{{ s.backup_copies }}">
+    </div>
+    <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary"><i class="bi bi-save2"></i> Speichern</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('run_backup') }}"><i class="bi bi-hdd-stack"></i> Backup
+            jetzt erstellen</a>
+    </div>
+</form>
+{% endblock %}

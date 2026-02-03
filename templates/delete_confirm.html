@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<h3 class="text-danger"><i class="bi bi-exclamation-triangle-fill"></i> Radsatz sicher löschen</h3>
+<div class="card border-danger">
+    <div class="card-body">
+        <p>Bitte bestätigen Sie die Löschung des folgenden Radsatzes. Dieser Vorgang kann nicht rückgängig gemacht
+            werden.</p>
+        <ul>
+            <li><strong>Kunde:</strong> {{ w.customer_name }}</li>
+            <li><strong>Kennzeichen:</strong> <span class="badge text-bg-primary">{{ w.license_plate }}</span></li>
+            <li><strong>Fahrzeug:</strong> {{ w.car_type }}</li>
+            <li><strong>Position:</strong> <code>{{ w.storage_position }}</code></li>
+        </ul>
+        <form method="post" class="mt-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label class="form-label">Zur Bestätigung geben Sie das Kennzeichen ein:</label>
+                <input type="text" class="form-control" name="confirm_plate" required
+                    placeholder="Kennzeichen eingeben">
+            </div>
+            <button class="btn btn-danger"><i class="bi bi-trash"></i> Endgültig löschen</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">Abbrechen</a>
+            <div class="form-text mt-2">
+                Sichere Löschung ist aktiviert (<code>PRAGMA secure_delete=ON</code>), und es wird ein Audit-Eintrag
+                erzeugt.
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
