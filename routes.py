@@ -171,14 +171,13 @@ def register_routes(app):
             # but disallow changing to other disabled ones.
             pos_choices = [p for p in SORTED_POSITIONS if
                            (p not in occupied) and (p not in disabled or p == w.storage_position)]
-
-
             if request.method == "POST":
                 validate_csrf()
                 customer_name = request.form.get("customer_name", "").strip()
                 license_plate = request.form.get("license_plate", "").strip()
                 car_type = request.form.get("car_type", "").strip()
-                note = (request.form.get("note", "") or "").strip() or None
+                note_input = (request.form.get("note") or "").strip()
+                note = None if (not note_input or note_input.lower() == "none") else note_input
                 storage_position = request.form.get(
                     "storage_position", "").strip()
 
@@ -202,7 +201,6 @@ def register_routes(app):
                     flash("Zielposition ist gesperrt und kann nicht verwendet werden.",
                           "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
-
 
                 old_pos = w.storage_position
                 w.customer_name = customer_name
