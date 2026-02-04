@@ -9,7 +9,7 @@
             <li><strong>Kunde:</strong> {{ w.customer_name }}</li>
             <li><strong>Kennzeichen:</strong> <span class="badge text-bg-primary">{{ w.license_plate }}</span></li>
             <li><strong>Fahrzeug:</strong> {{ w.car_type }}</li>
-            <li><strong>Position:</strong> <code>{{ w.storage_position }}</code></li>
+            <li><strong>Position:</strong> <span class="pos-inline">{{ w.storage_position }}</span></li>
         </ul>
         <form method="post" class="mt-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

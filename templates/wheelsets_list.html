@@ -35,7 +35,10 @@
                 <td>{{ w.customer_name }}</td>
                 <td><span class="badge text-bg-primary">{{ w.license_plate }}</span></td>
                 <td>{{ w.car_type }}</td>
-                <td><code>{{ w.storage_position }}</code></td>
+                <td>
+                    {% set cls = 'pos-container' if w.storage_position.startswith('C') else 'pos-garage' %}
+                    <span class="badge pos-badge {{ cls }}">{{ w.storage_position }}</span>
+                </td>
                 <td>{{ w.note or "" }}</td>
                 <td class="text-nowrap">
                     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_wheelset', wid=w.id) }}"><i

@@ -8,7 +8,7 @@ A lightweight, single‑file Flask web app to manage customer tire sets (Sommer/
 
 ## Features
 
-- **Simple single‑file app** (Flask + SQLAlchemy + Jinja2) with Bootstrap 5 UI (navbar shows version). [1](https://msasafety-my.sharepoint.com/personal/03brandhet37_msasafety_com/Documents/Microsoft%20Copilot-Chatdateien/wheels_manager.py)
+- **Simple app** (Flask + SQLAlchemy + Jinja2) with Bootstrap 5 UI (navbar shows version). [1](https://msasafety-my.sharepoint.com/personal/03brandhet37_msasafety_com/Documents/Microsoft%20Copilot-Chatdateien/wheels_manager.py)
 - **Manage wheel sets**: add, edit, safe delete (with confirmation), search by customer/plate/car, and audit logs. [1](https://msasafety-my.sharepoint.com/personal/03brandhet37_msasafety_com/Documents/Microsoft%20Copilot-Chatdateien/wheels_manager.py)
 - **Positions logic** with validation & sorting (containers + shelves) and “next free position” suggestion. [1](https://msasafety-my.sharepoint.com/personal/03brandhet37_msasafety_com/Documents/Microsoft%20Copilot-Chatdateien/wheels_manager.py)
 - **Automated backups** (configurable interval & retention) + **on‑demand backups** from the UI. [1](https://msasafety-my.sharepoint.com/personal/03brandhet37_msasafety_com/Documents/Microsoft%20Copilot-Chatdateien/wheels_manager.py)
@@ -28,6 +28,11 @@ A lightweight, single‑file Flask web app to manage customer tire sets (Sommer/
 ├─ positions.py
 ├─ utils.py
 ├─ run.py               (entry point)
+├─ static/
+│  ├─ css/
+│  │  └─ style.css
+│  └─ js/
+│     └─ script.js
 ├─ templates/
 │  ├─ base.html
 │  ├─ index.html
