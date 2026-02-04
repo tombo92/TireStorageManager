@@ -17,6 +17,7 @@ Lightweight auto-updater for TireStorage Manager (Windows friendly)
 # IMPORTS
 # ========================================================
 import os
+from pathlib import Path
 import re
 import io
 import sys
@@ -43,8 +44,9 @@ ZIP_URL = f"https://github.com/{OWNER}/{REPO}/archive/refs/heads/{BRANCH}.zip"
 # [3] Latest commit on branch
 COMMITS_URL = f"https://api.github.com/repos/{OWNER}/{REPO}/commits/{BRANCH}"
 
-HERE = os.path.abspath(os.path.dirname(__file__))
-APP_FILE = os.path.join(HERE, "config.py")
+TOOLS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = TOOLS_DIR.parent
+LOCAL_CONFIG = os.path.join(REPO_ROOT, "config.py")
 
 # Include common source and template/static assets (but not DB/backups)
 INCLUDE_PATTERNS = (
@@ -53,6 +55,7 @@ INCLUDE_PATTERNS = (
     ".css", ".js",
     "requirements.txt",
     ".txt", ".md", ".ini", ".cfg", ".json",
+    ".yml", ".yaml", ".toml",
 )
 
 VERSION_RX = re.compile(r'^\s*VERSION\s*=\s*"([^"]+)"', re.MULTILINE)
@@ -256,7 +259,7 @@ def overlay_from_zip(zip_bytes: bytes, dest_root: str) -> None:
 
 
 def main() -> int:
-    local_v = read_local_version(APP_FILE)
+    local_v = read_local_version(LOCAL_CONFIG)
     log(f"Local VERSION: {local_v or 'n/a'}")
 
     remote_v = fetch_remote_version_via_raw()
@@ -299,7 +302,7 @@ def main() -> int:
             log("ERROR: invalid ZIP from GitHub.")
             return 3
         # Overlay selected files into this project directory
-        overlay_from_zip(zip_bytes, dest_root=HERE)
+        overlay_from_zip(zip_bytes, dest_root=REPO_ROOT)
 
     log(f"OK: updated to {remote_v}.")
     return 10
