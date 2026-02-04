@@ -15,7 +15,7 @@ from pathlib import Path
 # ========================================================
 # GLOABALS
 # ========================================================
-VERSION = "1.1.4"
+VERSION = "1.1.5"
 APP_NAME = "Brandherm - Reifenmanager"
 
 BASE_DIR = Path(__file__).resolve().parent
