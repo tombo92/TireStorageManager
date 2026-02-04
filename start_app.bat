@@ -11,6 +11,7 @@ REM =================================================
 cd /d "%~dp0"
 
 set "APP_FILE=run.py"
+set "UPDATER_FILE=tools\updater.py"
 set "REQ_FILE=requirements.txt"
 set "VENV_DIR=.venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
@@ -48,12 +49,12 @@ echo [OK] Using %PYEXE%
 REM =================================================
 REM UPDATE (run updater.py before venv/pip/app)
 REM =================================================
-if exist "updater.py" (
+if exist "%UPDATER_FILE%" (
   echo [INFO] Running updater...
   if /i "%PYEXE%"=="py.exe" (
-    "%PYEXE%" -3 "updater.py"
+    "%PYEXE%" -3 "%UPDATER_FILE%"
   ) else (
-    "%PYEXE%" "updater.py"
+    "%PYEXE%" "%UPDATER_FILE%"
   )
   set "UP_RC=%ERRORLEVEL%"
   if "%UP_RC%"=="10" (
