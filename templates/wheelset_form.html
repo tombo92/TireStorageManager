@@ -19,7 +19,7 @@
     </div>
     <div class="col-md-6">
         <label class="form-label">Position *</label>
-        <select class="form-select" name="storage_position" required>
+        <select class="form-select pos-select" name="storage_position" required>
             {% if suggested and not editing %}
             <option value="{{ suggested }}">{{ suggested }} (Vorschlag)</option>
             {% endif %}

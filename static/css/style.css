@@ -1,0 +1,104 @@
+/* Global spacing */
+body {
+    padding-bottom: 60px;
+}
+
+/* Navbar version tag */
+.version-badge {
+    font-size: .85rem;
+    opacity: .8;
+}
+
+/* =========================================================
+   Position chips/buttons — scalable via CSS variable
+   ========================================================= */
+:root {
+    --pos-scale: 1;
+}
+
+/* set by JS: 1.00 | 1.15 | 1.30 */
+
+/* Wrap container to avoid overlap; use on lists of positions */
+.pos-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: .35rem .5rem;
+    /* row gap / column gap */
+}
+
+/* Badge style for inline display (tables, labels, etc.) */
+.pos-badge {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: calc(1rem * var(--pos-scale));
+    padding: calc(.30rem * var(--pos-scale)) calc(.55rem * var(--pos-scale));
+    line-height: 1.30;
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: calc(.60rem * var(--pos-scale));
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+    display: inline-block;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+
+.pos-badge-lg {
+    font-size: calc(1.15rem * var(--pos-scale));
+    padding: calc(.45rem * var(--pos-scale)) calc(.70rem * var(--pos-scale));
+    line-height: 1.25;
+}
+
+/* Button style specifically for clickable free positions */
+.pos-btn {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: calc(.95rem * var(--pos-scale));
+    padding: calc(.35rem * var(--pos-scale)) calc(.65rem * var(--pos-scale));
+    border-radius: calc(.60rem * var(--pos-scale));
+    letter-spacing: .2px;
+    line-height: 1.2;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+    white-space: nowrap;
+    border: none;
+    /* we color via role classes */
+}
+
+.pos-btn-lg {
+    font-size: calc(1.05rem * var(--pos-scale));
+    padding: calc(.45rem * var(--pos-scale)) calc(.80rem * var(--pos-scale));
+    line-height: 1.2;
+}
+
+/* Color roles (shared with badges & position buttons) */
+.pos-container {
+    background-color: #0d6efd !important;
+    color: #fff !important;
+}
+
+/* primary */
+.pos-garage {
+    background-color: #198754 !important;
+    color: #fff !important;
+}
+
+/* success */
+.pos-disabled {
+    background-color: #343a40 !important;
+    color: #fff !important;
+}
+
+/* dark */
+
+/* Inline chip for confirmations/details */
+.pos-inline {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 1rem;
+    background: #f1f3f5;
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: .35rem;
+    padding: .20rem .45rem;
+}
+
+/* Larger position dropdown text */
+select[name="storage_position"].pos-select {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 1.05rem;
+}
