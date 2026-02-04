@@ -19,19 +19,16 @@ from sqlalchemy.exc import IntegrityError
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
-from db import SessionLocal
-from models import WheelSet, Settings, AuditLog
-
-from positions import (
+from tsm.db import SessionLocal
+from tsm.models import WheelSet, Settings, AuditLog
+from tsm.positions import (
     is_valid_position, SORTED_POSITIONS, get_occupied_positions,
     first_free_position, free_positions, get_disabled_positions,
     is_usable_position, position_sort_key
 )
-
-from utils import validate_csrf
+from tsm.utils import validate_csrf
 # for route use (CSV)
-from backup_manager import BackupManager, export_csv_snapshot
-
+from tsm.backup_manager import export_csv_snapshot
 from config import BACKUP_DIR
 
 
@@ -343,8 +340,8 @@ def register_routes(app):
     @app.route("/backups/run")
     def run_backup():
         # local import to avoid early start
-        from backup_manager import BackupManager
-        from db import engine
+        from tsm.backup_manager import BackupManager
+        from tsm.db import engine
         try:
             mgr = BackupManager(engine, BACKUP_DIR)
             mgr.perform_backup()

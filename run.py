@@ -12,9 +12,9 @@ Entry point
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
-from app import create_app
-from backup_manager import BackupManager
-from db import engine
+from tsm.app import create_app
+from tsm.backup_manager import BackupManager
+from tsm.db import engine
 from config import BACKUP_DIR, HOST, PORT, APP_NAME, VERSION
 
 
