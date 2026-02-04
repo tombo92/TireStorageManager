@@ -38,7 +38,7 @@
     </div>
     <div class="col-12">
         <label class="form-label">Notiz (optional)</label>
-        <textarea class="form-control" name="note" rows="3">{{ w.note if w else '' }}</textarea>
+        <textarea class="form-control" name="note" rows="3">{{ (w.note or '') if w else '' }}</textarea>
     </div>
     <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Speichern</button>
