@@ -6,9 +6,13 @@
     <div class="card-body">
         <h5 class="card-title">Freie Position finden</h5>
         {% if next_free %}
-        <p>Nächste freie Position: <span class="badge text-bg-success pos-badge">{{ next_free }}</span></p>
-        <a class="btn btn-success" href="{{ url_for('create_wheelset', suggested=next_free) }}"><i
-                class="bi bi-plus-lg"></i> Radsatz hier anlegen</a>
+        {% set cls = 'pos-container' if next_free.startswith('C') else 'pos-garage' %}
+        <p class="mb-2">Nächste freie Position:
+            <span class="badge pos-badge pos-badge-lg {{ cls }}">{{ next_free }}</span>
+        </p>
+        <a class="btn btn-success" href="{{ url_for('create_wheelset', suggested=next_free) }}">
+            <i class="bi bi-plus-lg"></i> Radsatz hier anlegen
+        </a>
         {% else %}
         <p class="text-danger">Keine freien Positionen vorhanden.</p>
         {% endif %}
@@ -19,12 +23,33 @@
     <div class="card-body">
         <h5 class="card-title">Alle freien Positionen ({{ free_positions|length }})</h5>
         {% if free_positions %}
-        {% for p in free_positions %}
-        <span class="badge text-bg-secondary pos-badge me-1 mb-1">{{ p }}</span>
-        {% endfor %}
+        <div class="pos-cloud">
+            {% for p in free_positions %}
+            {% set cls = 'pos-container' if p.startswith('C') else 'pos-garage' %}
+            <a class="btn pos-btn {{ cls }}" href="{{ url_for('create_wheelset', suggested=p) }}"
+                title="Radsatz anlegen @ {{ p }}">{{ p }}</a>
+            {% endfor %}
+        </div>
         {% else %}
         <p>Keine freien Positionen.</p>
         {% endif %}
     </div>
 </div>
+
+{% if disabled_positions is defined %}
+<div class="card mt-3">
+    <div class="card-body">
+        <h5 class="card-title">Gesperrte Positionen ({{ disabled_positions|length }})</h5>
+        {% if disabled_positions %}
+        <div class="pos-cloud">
+            {% for p in disabled_positions %}
+            <span class="badge pos-badge pos-disabled">{{ p }}</span>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p>Keine gesperrten Positionen.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 {% endblock %}
