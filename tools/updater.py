@@ -152,7 +152,10 @@ def _fallback_scan_version_in_zip(zf: zipfile.ZipFile) -> str | None:
     This is intentionally limited for performance.
     """
     for name in zf.namelist():
-        if not name.endswith((".py", ".txt", ".md", ".cfg", ".ini", ".json")):
+        if not name.endswith((".py", ".txt", ".md",
+                              ".cfg", ".ini", ".json",
+                              ".html", ".js", ".css",
+                              ".bat")):
             continue
         # Avoid big files
         try:

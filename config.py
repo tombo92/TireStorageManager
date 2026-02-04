@@ -19,7 +19,7 @@ VERSION = "1.1.3"
 APP_NAME = "Brandherm - Reifenmanager"
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = str(BASE_DIR / "wheel_storage.db")
+DB_PATH = str(BASE_DIR / "db/wheel_storage.db")
 BACKUP_DIR = str(BASE_DIR / "backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 

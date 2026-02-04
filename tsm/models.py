@@ -11,7 +11,8 @@ Models
 # ========================================================
 from datetime import datetime, timezone
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, Integer, String, DateTime, Text, UniqueConstraint
+from sqlalchemy import (Column, Integer, String, DateTime, Text,
+                        UniqueConstraint)
 
 
 # ========================================================

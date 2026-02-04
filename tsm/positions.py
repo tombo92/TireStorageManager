@@ -10,7 +10,7 @@ Postions Logic
 # IMPORTS
 # ========================================================
 import re
-from models import WheelSet, DisabledPosition
+from tsm.models import WheelSet, DisabledPosition
 
 
 # ========================================================

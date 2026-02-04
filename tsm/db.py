@@ -12,8 +12,11 @@ DB
 import sqlite3
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, scoped_session
+# --------------------------------------------------------
+# Local Imports
+# --------------------------------------------------------
 from config import DB_PATH
-from models import Base  # ensure models import happens before create_all
+from tsm.models import Base  # ensure models import happens before create_all
 
 # ========================================================
 # GLOABALS
