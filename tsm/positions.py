@@ -10,7 +10,7 @@ Postions Logic
 # IMPORTS
 # ========================================================
 import re
-from models import WheelSet
+from tsm.models import WheelSet, DisabledPosition
 
 
 # ========================================================
@@ -81,17 +81,56 @@ def get_occupied_positions(db) -> set[str]:
     return {r[0] for r in rows}
 
 
+def get_disabled_positions(db) -> set[str]:
+    rows = db.query(DisabledPosition.code).all()
+    return {r[0] for r in rows}
+
+
+def disable_position(db, code: str, reason: str | None = None) -> bool:
+    """
+    Mark a position as unusable. Returns True if created, False if already disabled.
+    """
+    if not is_valid_position(code):
+        return False
+    if db.query(DisabledPosition).get(code):
+        return False
+    db.add(DisabledPosition(code=code, reason=reason))
+    db.commit()
+    return True
+
+
+def enable_position(db, code: str) -> bool:
+    """
+    Remove a position from the disabled list. Returns True if removed, else False.
+    """
+    row = db.query(DisabledPosition).get(code)
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def is_usable_position(db, code: str) -> bool:
+    """
+    Structurally valid and not disabled.
+    """
+    return is_valid_position(code) and (code not in get_disabled_positions(db))
+
+
 def first_free_position(db):
     occupied = get_occupied_positions(db)
+    disabled = get_disabled_positions(db)
     for code in SORTED_POSITIONS:
-        if code not in occupied:
+        if code not in occupied and code not in disabled:
             return code
     return None
 
 
 def free_positions(db):
     occupied = get_occupied_positions(db)
-    return [code for code in SORTED_POSITIONS if code not in occupied]
+    disabled = get_disabled_positions(db)
+    return [code for code in SORTED_POSITIONS if code not in occupied and code not in disabled]
 
 
 # ========================================================
