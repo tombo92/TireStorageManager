@@ -91,11 +91,15 @@ echo [INFO] Installing requirements ...
 "%VENV_PY%" -m pip install -r "%REQ_FILE%" || goto :req_fail
 
 REM ---- Set a default secret if not set ----
-if "%WHEELS_SECRET_KEY%"=="" set "WHEELS_SECRET_KEY=BitteAendern-Prod-Secret"
+if "%WHEELS_SECRET_KEY%"=="" set "WHEELS_SECRET_KEY=change-me-please"
 
 echo [START] Launching app (Ctrl+C to stop) ...
 "%VENV_PY%" "%APP_FILE%"
-set "EXITCODE=%ERRORLEVEL%"
+REM set "EXITCODE=%ERRORLEVEL%"
+
+REM --- PRODUCTION: Waitress serves your WSGI app (no dev server warning) ---
+"%VENV_PY%" -m waitress --listen=0.0.0.0:5000 wsgi:app
+
 echo [INFO] App exited with code %EXITCODE%
 pause
 exit /b %EXITCODE%

@@ -13,14 +13,15 @@ import os
 from pathlib import Path
 
 # ========================================================
-# GLOABALS
+# GLOBALS
 # ========================================================
-VERSION = "1.1.5"
+VERSION = "1.2.0"
 APP_NAME = "Brandherm - Reifenmanager"
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = str(BASE_DIR / "db/wheel_storage.db")
 BACKUP_DIR = str(BASE_DIR / "backups")
+LOG_LEVEL = os.getenv("TSM_LOG_LEVEL", "INFO").upper()
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # Set Production via ENV!
