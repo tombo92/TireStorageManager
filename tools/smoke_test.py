@@ -649,7 +649,7 @@ def test_concurrency(base: str):
                 "/wheelsets/new",
                 {
                     "customer_name":    f"Concurrent User {i}",
-                    "license_plate":    f"CC-{i:02d} 0001",
+                    "license_plate":    f"B-CC {i + 1:04d}",
                     "car_type":         "Conflict Car",
                     "storage_position": free_pos,   # same for all threads
                     "note":             "concurrency test",
@@ -681,7 +681,7 @@ def test_concurrency(base: str):
           f"successes: {success_count}")
     # Check how many wheelsets landed at the contested position.
     # Search by the plate prefix used for all concurrent writers.
-    _, list_body = _get(base, "/wheelsets?q=CC-")
+    _, list_body = _get(base, "/wheelsets?q=B-CC")
     occupied_matches = re.findall(rb'/wheelsets/(\d+)/edit', list_body)
     n_created = len(occupied_matches)
     if n_created == 1:
