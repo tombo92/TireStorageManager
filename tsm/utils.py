@@ -9,6 +9,8 @@ Utils: leichter CSRF Schutz
 # ========================================================
 # IMPORTS
 # ========================================================
+import os
+import sys
 import secrets
 from flask import session, request, abort
 
@@ -29,3 +31,8 @@ def validate_csrf():
     form_token = request.form.get("_csrf_token")
     if not token or not form_token or token != form_token:
         abort(400, description="Ungültiges CSRF-Token.")
+
+
+def resource_path(rel_path: str) -> str:
+    base = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base, rel_path)
