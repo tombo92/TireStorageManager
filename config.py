@@ -22,6 +22,9 @@ from pathlib import Path
 VERSION = "1.4.0"
 APP_NAME = os.environ.get("TSM_APP_NAME", "Reifenmanager")
 
+# Set to "1" by the CI on develop builds — signals a pre-release/test build
+IS_PRERELEASE: bool = os.environ.get("TSM_PRERELEASE", "0") == "1"
+
 BASE_DIR = Path(__file__).resolve().parent
 
 # Data directory: default = repo root, override with TSM_DATA_DIR

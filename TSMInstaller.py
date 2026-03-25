@@ -38,6 +38,7 @@ import socket
 import sys
 import threading
 import time
+import winreg
 from pathlib import Path
 from typing import Optional
 
@@ -57,6 +58,10 @@ DEFAULT_PORT = 5000
 PAYLOAD_APP = Path("payload") / f"{APP_NAME}.exe"
 PAYLOAD_NSSM = Path("payload") / "nssm.exe"
 PAYLOAD_SEED_DB = Path("payload") / "db" / "wheel_storage.db"
+PAYLOAD_PRERELEASE_MARKER = Path("payload") / "PRERELEASE"
+
+# Registry key for persisting installer settings (HKCU)
+REGISTRY_KEY = r"Software\TireStorageManager\Installer"
 
 # Colours for the themed UI
 BG_DARK = "#1e293b"
@@ -102,6 +107,27 @@ def get_primary_ipv4() -> Optional[str]:
             return socket.gethostbyname(socket.gethostname())
         except Exception:
             return None
+
+
+def open_url(url: str) -> None:
+    """Open *url* in the default browser.
+
+    webbrowser.open() silently fails when the calling process is elevated
+    (admin) because browsers refuse to run as Administrator.
+    ShellExecuteW delegates the launch to Explorer which runs at normal
+    user privilege and opens the URL correctly.
+    """
+    try:
+        ctypes.windll.shell32.ShellExecuteW(  # type: ignore[attr-defined]
+            None, "open", url, None, None, 1
+        )
+    except Exception:
+        pass  # fallback: silently ignore on non-Windows or unexpected error
+
+
+def is_prerelease_build() -> bool:
+    """Return True if a PRERELEASE marker was bundled into the payload."""
+    return resource_path(PAYLOAD_PRERELEASE_MARKER).exists()
 
 
 # ========================================================
@@ -150,10 +176,71 @@ class InstallerApp(tk.Tk):
         self.var_secret_key = tk.StringVar(value="")
         self.var_shortcut = tk.BooleanVar(value=True)
 
+        self._load_settings()  # overwrite defaults with saved values
+
         self.nssm: Optional[Path] = None
         self.app_exe: Optional[Path] = None
 
         self._build_ui()
+
+    # --------------------------------------------------------
+    # Registry persistence
+    # --------------------------------------------------------
+    def _load_settings(self) -> None:
+        """Read previously saved installer inputs from the registry."""
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0,
+                winreg.KEY_READ,
+            )
+            with key:
+                def _str(name: str, var: tk.StringVar) -> None:
+                    try:
+                        val, _ = winreg.QueryValueEx(key, name)
+                        if val:
+                            var.set(val)
+                    except FileNotFoundError:
+                        pass
+
+                def _bool(name: str, var: tk.BooleanVar) -> None:
+                    try:
+                        val, _ = winreg.QueryValueEx(key, name)
+                        var.set(bool(val))
+                    except FileNotFoundError:
+                        pass
+
+                _str("InstallDir",   self.var_install)
+                _str("DataDir",      self.var_data)
+                _str("Port",         self.var_port)
+                _str("DisplayName",  self.var_display_name)
+                # secret key intentionally NOT loaded for security
+                _bool("Shortcut",   self.var_shortcut)
+        except FileNotFoundError:
+            pass  # key doesn't exist yet — first run
+
+    def _save_settings(self) -> None:
+        """Persist current installer inputs to the registry (HKCU)."""
+        try:
+            key = winreg.CreateKeyEx(
+                winreg.HKEY_CURRENT_USER, REGISTRY_KEY, 0,
+                winreg.KEY_WRITE,
+            )
+            with key:
+                winreg.SetValueEx(key, "InstallDir",  0,
+                                  winreg.REG_SZ, self.var_install.get())
+                winreg.SetValueEx(key, "DataDir",     0,
+                                  winreg.REG_SZ, self.var_data.get())
+                winreg.SetValueEx(key, "Port",        0,
+                                  winreg.REG_SZ, self.var_port.get())
+                winreg.SetValueEx(key, "DisplayName", 0,
+                                  winreg.REG_SZ,
+                                  self.var_display_name.get())
+                winreg.SetValueEx(key, "Shortcut",    0,
+                                  winreg.REG_DWORD,
+                                  int(self.var_shortcut.get()))
+                # secret key intentionally NOT saved for security
+        except OSError:
+            pass  # silently ignore — registry write failed
 
     # --------------------------------------------------------
     # UI Construction
@@ -168,6 +255,17 @@ class InstallerApp(tk.Tk):
             bg=ACCENT, fg="white",
             font=("Segoe UI", 14, "bold"),
         ).pack(side="left", padx=12, pady=10)
+
+        # Pre-release warning banner
+        if is_prerelease_build():
+            warn = tk.Frame(self, bg="#eab308")
+            warn.pack(fill="x")
+            tk.Label(
+                warn,
+                text="⚠  TEST-VERSION  –  Nicht für den produktiven Einsatz geeignet",
+                bg="#eab308", fg="#1e293b",
+                font=("Segoe UI", 9, "bold"),
+            ).pack(pady=4)
 
         # Body card
         body = tk.Frame(self, bg=BG_CARD, padx=24, pady=18)
@@ -334,6 +432,7 @@ class InstallerApp(tk.Tk):
         secret_key = self.var_secret_key.get().strip()
         shortcut = self.var_shortcut.get()
 
+        self._save_settings()
         self.btn_install.configure(state="disabled")
         self.btn_uninstall.configure(state="disabled")
         ProgressWindow(self, install_dir, data_dir, port,
@@ -382,6 +481,7 @@ class InstallerApp(tk.Tk):
         self.btn_install.configure(state="disabled")
         self.btn_uninstall.configure(state="disabled")
         display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
+        self._save_settings()
         UninstallProgressWindow(
             self, install_dir, data_dir,
             keep_data=keep_data,
@@ -492,7 +592,7 @@ class ProgressWindow(tk.Toplevel):
                 self.btn_frame, text="  Im Browser öffnen  ",
                 font=("Segoe UI", 10, "bold"),
                 bg=ACCENT, fg="white", relief="flat",
-                command=lambda: __import__("webbrowser").open(url),
+                command=lambda: open_url(url),
             ).pack(side="left")
         tk.Button(
             self.btn_frame, text="  Schließen  ",
@@ -753,7 +853,9 @@ class UninstallProgressWindow(tk.Toplevel):
     # ---- Individual uninstall steps ----
     def _step_stop_service(self):
         logic.stop_service(self.install_dir, log=self._log)
-        time.sleep(1)
+        # stop_service already waits for the process to exit;
+        # add a small extra buffer before file deletion begins.
+        time.sleep(2)
 
     def _step_remove_service(self):
         logic.remove_service(self.install_dir, log=self._log)
