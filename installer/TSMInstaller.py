@@ -28,7 +28,7 @@ Produces a single EXE via PyInstaller that:
   6. Optionally deletes the data directory (DB, backups, logs)
 
 Build:
-  pyinstaller TSM-Installer.spec
+  pyinstaller installer/TSM-Installer.spec
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from typing import Optional
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-import installer_logic as logic
+from installer import installer_logic as logic
 
 # ========================================================
 # CONSTANTS

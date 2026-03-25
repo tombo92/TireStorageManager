@@ -116,7 +116,7 @@ pyinstaller TireStorageManager.spec --noconfirm
 copy dist\TireStorageManager.exe payload\TireStorageManager.exe
 
 # Build the installer EXE
-pyinstaller TSM-Installer.spec --noconfirm
+pyinstaller installer/TSM-Installer.spec --noconfirm
 # → dist\TSM-Installer.exe
 ```
 
@@ -173,12 +173,13 @@ TireStorageManager/
 ├── tests/                  # pytest test suite
 ├── tools/                  # Developer utilities (version bump, code signing, …)
 ├── payload/                # Bundled assets for the installer (nssm.exe, seed DB)
+├── installer/              # Installer package
+│   ├── installer_logic.py  # Pure-logic install/uninstall steps (no Tkinter)
+│   ├── TSMInstaller.py     # Tkinter installer/uninstaller GUI
+│   └── TSM-Installer.spec  # PyInstaller spec for the installer EXE
 ├── config.py               # Central configuration (reads env vars)
 ├── run.py                  # Application entry point (dev + prod)
-├── installer_logic.py      # Pure-logic install/uninstall steps (no Tkinter)
-├── TSMInstaller.py         # Tkinter installer/uninstaller GUI
-├── TireStorageManager.spec # PyInstaller spec for the app EXE
-└── TSM-Installer.spec      # PyInstaller spec for the installer EXE
+└── TireStorageManager.spec # PyInstaller spec for the app EXE
 ```
 
 ---

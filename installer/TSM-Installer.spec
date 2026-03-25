@@ -2,17 +2,25 @@
 # PyInstaller spec for the TSM Installer GUI.
 # Bundles payload/ directory (TireStorageManager.exe, nssm.exe, seed db).
 #
-# Build:
+# Build (from repo root):
 #   1. First build the app:  pyinstaller TireStorageManager.spec
 #   2. Copy dist/TireStorageManager.exe → payload/TireStorageManager.exe
-#   3. Then build installer:  pyinstaller TSM-Installer.spec
+#   3. Then build installer:  pyinstaller installer/TSM-Installer.spec
+import os
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(SPECPATH if 'SPECPATH' not in dir() else '.')))
+# SPECPATH is set by PyInstaller to the directory containing this .spec file.
+# We go one level up to reach the repo root.
+REPO_ROOT = os.path.dirname(SPECPATH)
 
 a = Analysis(
-    ['TSMInstaller.py'],
-    pathex=[],
+    [os.path.join(SPECPATH, 'TSMInstaller.py')],
+    pathex=[REPO_ROOT],
     binaries=[],
-    datas=[('payload', 'payload'), ('assets/installer.ico', 'assets')],
-    hiddenimports=['installer_logic'],
+    datas=[
+        (os.path.join(REPO_ROOT, 'payload'), 'payload'),
+        (os.path.join(REPO_ROOT, 'assets', 'installer.ico'), 'assets'),
+    ],
+    hiddenimports=['installer.installer_logic'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -41,5 +49,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/installer.ico',
+    icon=os.path.join(REPO_ROOT, 'assets', 'installer.ico'),
 )

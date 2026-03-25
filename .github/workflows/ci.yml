@@ -164,7 +164,7 @@ jobs:
           echo "TSM_PRERELEASE=1" >> $env:GITHUB_ENV
 
       - name: Build TSM-Installer.exe
-        run: pyinstaller TSM-Installer.spec --noconfirm
+        run: pyinstaller installer/TSM-Installer.spec --noconfirm
 
       - name: Smoke-test TireStorageManager.exe
         shell: pwsh
