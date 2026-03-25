@@ -1,92 +1,94 @@
-# TSMInstallerGUI.py
-# GUI installer for TireStorageManager (Windows).
-# - Choose install dir, data dir, port
-# - Creates DB/backups/logs (seeds DB if payload contains tires_seed.db)
-# - Uses NSSM (bundled or from PATH) to install/start a Windows Service (auto-start on boot)
-# - Opens Windows Firewall inbound rule for the chosen port
-#
-# Build the installer as a single EXE via PyInstaller (see instructions below).
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @Date    : 2026-03-25
+# @Author  : Tom Brandherm (https://github.com/tombo92)
+# @Link    : https://github.com/tombo92/TireStorageManager
+"""
+TSM Installer GUI  -  Windows installer for TireStorageManager
 
+Produces a single EXE via PyInstaller that:
+
+  INSTALL:
+  1. Asks for install dir, data dir, HTTP port
+  2. Shows a loading screen with progress bar + log
+  3. Copies app EXE + NSSM into install dir
+  4. Creates db/, backups/, logs/ in data dir
+  5. Seeds the database from a bundled template (if present)
+  6. Opens Windows Firewall for the chosen port
+  7. Installs a Windows Service (auto-start) via NSSM
+  8. Starts the service immediately
+  9. Creates a daily Scheduled Task for update checks
+
+  UNINSTALL:
+  1. Stops the Windows Service
+  2. Removes the Windows Service (via NSSM or sc.exe)
+  3. Removes the scheduled daily task
+  4. Removes firewall rules
+  5. Deletes the install directory (EXE + NSSM)
+  6. Optionally deletes the data directory (DB, backups, logs)
+
+Build:
+  pyinstaller TSM-Installer.spec
+"""
 from __future__ import annotations
-import os
-import sys
-import shutil
-import socket
-import ctypes
-import subprocess
-import threading
-from pathlib import Path
-from typing import Optional, Callable
 
-# --- UI (Tkinter) ---
+import ctypes
+import os
+import socket
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Optional
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+import installer_logic as logic
+
+# ========================================================
+# CONSTANTS
+# ========================================================
 APP_NAME = "TireStorageManager"
 SERVICE_NAME = "TireStorageManager"
+DEFAULT_DISPLAY_NAME = "Reifenmanager"
 DEFAULT_PORT = 5000
 
-# Payloads to bundle with PyInstaller
-PAYLOAD_APP        = Path("payload") / f"{APP_NAME}.exe"
-PAYLOAD_NSSM       = Path("payload") / "nssm.exe"
-PAYLOAD_SEED_DB    = Path("payload") / "db" / "wheel_storage.db"
+PAYLOAD_APP = Path("payload") / f"{APP_NAME}.exe"
+PAYLOAD_NSSM = Path("payload") / "nssm.exe"
+PAYLOAD_SEED_DB = Path("payload") / "db" / "wheel_storage.db"
 
-# -------------------- Utility helpers --------------------
+# Colours for the themed UI
+BG_DARK = "#1e293b"
+BG_CARD = "#334155"
+FG_TEXT = "#f8fafc"
+ACCENT = "#3b82f6"
+SUCCESS = "#22c55e"
+ERROR_CLR = "#ef4444"
+
+
+# ========================================================
+# UTILITY HELPERS
+# ========================================================
 def is_admin() -> bool:
-    return True
     try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
+
 
 def relaunch_as_admin():
-    params = " ".join([f'"{arg}"' for arg in sys.argv])
-    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+    params = " ".join([f'"{a}"' for a in sys.argv])
+    ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable, params, None, 1)
     sys.exit(0)
 
+
 def resource_path(rel: Path) -> Path:
-    """Return absolute path to a payload in both dev and PyInstaller one-file modes."""
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    base = Path(getattr(sys, "_MEIPASS",
+                        Path(__file__).resolve().parent))
     return (base / rel).resolve()
 
-def ensure_dir(p: Path):
-    p.mkdir(parents=True, exist_ok=True)
-
-def run_cmd(cmd: list[str], check=True) -> subprocess.CompletedProcess:
-    # print(">", " ".join(cmd))  # uncomment for debugging
-    return subprocess.run(cmd, check=check, capture_output=True, text=True, shell=False)
-
-def which(exe_name: str) -> Optional[Path]:
-    # Prefer shutil.which, fallback to "where" for robustness
-    from shutil import which as swhich
-    path = swhich(exe_name)
-    if path:
-        return Path(path)
-    try:
-        cp = run_cmd(["where", exe_name], check=False)
-        if cp.returncode == 0 and cp.stdout:
-            first = cp.stdout.splitlines()[0].strip()
-            if first and Path(first).exists():
-                return Path(first)
-    except Exception:
-        pass
-    return None
-
-def copy_payload(src_rel: Path, dest: Path, overwrite: bool = False) -> bool:
-    src = resource_path(src_rel)
-    if not src.exists():
-        return False
-    if dest.exists() and not overwrite:
-        return True
-    ensure_dir(dest.parent)
-    shutil.copy2(src, dest)
-    return True
-
-def open_firewall(port: int):
-    name = f"{APP_NAME} {port}"
-    _ = run_cmd(["netsh", "advfirewall", "firewall", "add", "rule",
-                 f"name={name}", "dir=in", "action=allow",
-                 "protocol=TCP", f"localport={port}"], check=False)
 
 def get_primary_ipv4() -> Optional[str]:
     try:
@@ -101,292 +103,659 @@ def get_primary_ipv4() -> Optional[str]:
         except Exception:
             return None
 
-# -------------------- GUI --------------------
-class InstallerGUI(tk.Tk):
+
+# ========================================================
+# INSTALLER GUI
+# ========================================================
+class InstallerApp(tk.Tk):
+    """Main installer window with modern dark theme."""
+
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} Installer")
-        self.geometry("640x360")
-        self.minsize(640, 360)
-        self.configure(padx=18, pady=18)
+        self.title(f"{DEFAULT_DISPLAY_NAME} – Installer")
+        self.geometry("720x520")
+        self.minsize(720, 520)
+        self.configure(bg=BG_DARK)
+        self.resizable(True, True)
 
+        # Window icon
+        ico = resource_path(Path("assets") / "installer.ico")
+        if ico.exists():
+            self.iconbitmap(str(ico))
+
+        # Require admin
         if not is_admin():
-            if messagebox.askyesno("Administrator required",
-                                   "This installer needs administrative privileges.\n\n"
-                                   "Click Yes to restart with elevation."):
+            if messagebox.askyesno(
+                "Administrator erforderlich",
+                "Dieses Installationsprogramm benötigt "
+                "Administratorrechte.\n\n"
+                "Jetzt mit erhöhten Rechten neu starten?"):
                 relaunch_as_admin()
             else:
                 self.destroy()
                 sys.exit(1)
 
-        self.var_install = tk.StringVar(value=str(Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / APP_NAME))
-        self.var_data    = tk.StringVar(value=str(Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / APP_NAME))
-        self.var_port    = tk.StringVar(value=str(DEFAULT_PORT))
+        # Variables
+        default_install = str(
+            Path(os.environ.get(
+                "ProgramFiles", r"C:\Program Files")) / APP_NAME)
+        default_data = str(
+            Path(os.environ.get(
+                "PROGRAMDATA", r"C:\ProgramData")) / APP_NAME)
 
-        self._build_form()
-        self._build_actions()
-        self._build_footer()
+        self.var_install = tk.StringVar(value=default_install)
+        self.var_data = tk.StringVar(value=default_data)
+        self.var_port = tk.StringVar(value=str(DEFAULT_PORT))
+        self.var_display_name = tk.StringVar(value=DEFAULT_DISPLAY_NAME)
+        self.var_secret_key = tk.StringVar(value="")
 
-        # Splash/loading dialog will be created on demand
-        self.splash: Optional[tk.Toplevel] = None
-        self.progress = None  # type: Optional[ttk.Progressbar]
-        self.log_text = None  # type: Optional[tk.Text]
+        self.nssm: Optional[Path] = None
+        self.app_exe: Optional[Path] = None
 
-    # ------------- UI construction -------------
-    def _build_form(self):
-        frm = ttk.LabelFrame(self, text="Configuration")
-        frm.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+        self._build_ui()
 
-        # Install dir
-        ttk.Label(frm, text="Install directory (Program Files):").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 0))
-        row0 = ttk.Frame(frm)
-        row0.grid(row=1, column=0, sticky="ew", padx=8)
-        row0.columnconfigure(0, weight=1)
-        ttk.Entry(row0, textvariable=self.var_install).grid(row=0, column=0, sticky="ew")
-        ttk.Button(row0, text="Browse...", command=self._pick_install_dir).grid(row=0, column=1, padx=(6, 0))
+    # --------------------------------------------------------
+    # UI Construction
+    # --------------------------------------------------------
+    def _build_ui(self):
+        # Header
+        hdr = tk.Frame(self, bg=ACCENT, height=56)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Label(
+            hdr, text=f"  {DEFAULT_DISPLAY_NAME}  –  Installer",
+            bg=ACCENT, fg="white",
+            font=("Segoe UI", 14, "bold"),
+        ).pack(side="left", padx=12, pady=10)
 
-        # Data dir
-        ttk.Label(frm, text="Data directory (DB, backups, logs):").grid(row=2, column=0, sticky="w", padx=8, pady=(12, 0))
-        row1 = ttk.Frame(frm)
-        row1.grid(row=3, column=0, sticky="ew", padx=8)
-        row1.columnconfigure(0, weight=1)
-        ttk.Entry(row1, textvariable=self.var_data).grid(row=0, column=0, sticky="ew")
-        ttk.Button(row1, text="Browse...", command=self._pick_data_dir).grid(row=0, column=1, padx=(6, 0))
+        # Body card
+        body = tk.Frame(self, bg=BG_CARD, padx=24, pady=18)
+        body.pack(fill="both", expand=True, padx=20, pady=(16, 8))
 
-        # Port
-        ttk.Label(frm, text="HTTP port:").grid(row=4, column=0, sticky="w", padx=8, pady=(12, 0))
-        row2 = ttk.Frame(frm)
-        row2.grid(row=5, column=0, sticky="w", padx=8)
-        ttk.Entry(row2, width=10, textvariable=self.var_port).grid(row=0, column=0, sticky="w")
+        # --- Install dir ---
+        tk.Label(
+            body, text="Installationsverzeichnis (EXE + NSSM):",
+            bg=BG_CARD, fg=FG_TEXT, font=("Segoe UI", 10),
+        ).pack(anchor="w")
+        row0 = tk.Frame(body, bg=BG_CARD)
+        row0.pack(fill="x", pady=(2, 10))
+        tk.Entry(
+            row0, textvariable=self.var_install,
+            font=("Consolas", 10), bg="#475569", fg=FG_TEXT,
+            insertbackground=FG_TEXT, relief="flat",
+        ).pack(side="left", fill="x", expand=True, ipady=4)
+        tk.Button(
+            row0, text="…", width=3,
+            command=self._pick_install,
+            bg=ACCENT, fg="white", relief="flat",
+        ).pack(side="left", padx=(6, 0))
+
+        # --- Data dir ---
+        tk.Label(
+            body, text="Datenverzeichnis (DB, Backups, Logs):",
+            bg=BG_CARD, fg=FG_TEXT, font=("Segoe UI", 10),
+        ).pack(anchor="w")
+        row1 = tk.Frame(body, bg=BG_CARD)
+        row1.pack(fill="x", pady=(2, 10))
+        tk.Entry(
+            row1, textvariable=self.var_data,
+            font=("Consolas", 10), bg="#475569", fg=FG_TEXT,
+            insertbackground=FG_TEXT, relief="flat",
+        ).pack(side="left", fill="x", expand=True, ipady=4)
+        tk.Button(
+            row1, text="…", width=3,
+            command=self._pick_data,
+            bg=ACCENT, fg="white", relief="flat",
+        ).pack(side="left", padx=(6, 0))
+
+        # --- Port ---
+        tk.Label(
+            body, text="HTTP Port:", bg=BG_CARD,
+            fg=FG_TEXT, font=("Segoe UI", 10),
+        ).pack(anchor="w")
+        tk.Entry(
+            body, textvariable=self.var_port, width=8,
+            font=("Consolas", 10), bg="#475569", fg=FG_TEXT,
+            insertbackground=FG_TEXT, relief="flat",
+        ).pack(anchor="w", pady=(2, 10), ipady=4)
+
+        # --- Display name ---
+        tk.Label(
+            body, text="Programmtitel (wird in der Oberfläche angezeigt):",
+            bg=BG_CARD, fg=FG_TEXT, font=("Segoe UI", 10),
+        ).pack(anchor="w")
+        tk.Entry(
+            body, textvariable=self.var_display_name,
+            font=("Consolas", 10), bg="#475569", fg=FG_TEXT,
+            insertbackground=FG_TEXT, relief="flat",
+        ).pack(fill="x", pady=(2, 10), ipady=4)
+
+        # --- Secret key ---
+        tk.Label(
+            body, text="Geheimer Schlüssel (für Sitzungssicherheit):",
+            bg=BG_CARD, fg=FG_TEXT, font=("Segoe UI", 10),
+        ).pack(anchor="w")
+        tk.Entry(
+            body, textvariable=self.var_secret_key, show="•",
+            font=("Consolas", 10), bg="#475569", fg=FG_TEXT,
+            insertbackground=FG_TEXT, relief="flat",
+        ).pack(fill="x", pady=(2, 10), ipady=4)
 
         # Hint
-        ttk.Label(frm, text="Tip: Use a DNS name on your intranet rather than a raw IP for clients.").grid(
-            row=6, column=0, sticky="w", padx=8, pady=(12, 12))
+        tk.Label(
+            body,
+            text="Tipp: Verwenden Sie einen DNS-Namen im "
+                 "Intranet statt einer reinen IP-Adresse.",
+            bg=BG_CARD, fg="#94a3b8", font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(4, 0))
 
-        for i in range(7):
-            frm.rowconfigure(i, weight=0)
-        frm.columnconfigure(0, weight=1)
+        # --- Buttons ---
+        bar = tk.Frame(self, bg=BG_DARK)
+        bar.pack(fill="x", padx=20, pady=(0, 16))
 
-    def _build_actions(self):
-        bar = ttk.Frame(self)
-        bar.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        bar.columnconfigure(0, weight=1)
+        self.btn_install = tk.Button(
+            bar, text="  Installieren  ",
+            font=("Segoe UI", 11, "bold"),
+            bg=SUCCESS, fg="white", relief="flat",
+            activebackground="#16a34a", activeforeground="white",
+            command=self._on_install,
+        )
+        self.btn_install.pack(side="right", padx=(8, 0))
 
-        self.btn_install = ttk.Button(bar, text="Install", command=self._on_install)
-        self.btn_install.grid(row=0, column=1, sticky="e", padx=(0, 6))
-        ttk.Button(bar, text="Exit", command=self.destroy).grid(row=0, column=2, sticky="e")
+        self.btn_uninstall = tk.Button(
+            bar, text="  Deinstallieren  ",
+            font=("Segoe UI", 10),
+            bg=ERROR_CLR, fg="white", relief="flat",
+            activebackground="#dc2626", activeforeground="white",
+            command=self._on_uninstall,
+        )
+        self.btn_uninstall.pack(side="right", padx=(8, 0))
 
-    def _build_footer(self):
-        sep = ttk.Separator(self, orient="horizontal")
-        sep.grid(row=2, column=0, sticky="ew", pady=(12, 6))
-        ttk.Label(self, text=f"{APP_NAME} Installer", foreground="#666").grid(row=3, column=0, sticky="w")
+        tk.Button(
+            bar, text="  Beenden  ",
+            font=("Segoe UI", 10),
+            bg="#64748b", fg="white", relief="flat",
+            command=self.destroy,
+        ).pack(side="right")
 
-    # ------------- Browse handlers -------------
-    def _pick_install_dir(self):
-        d = filedialog.askdirectory(initialdir=self.var_install.get(), mustexist=False)
+    # --------------------------------------------------------
+    # Browse helpers
+    # --------------------------------------------------------
+    def _pick_install(self):
+        d = filedialog.askdirectory(
+            initialdir=self.var_install.get(), mustexist=False)
         if d:
             self.var_install.set(d)
 
-    def _pick_data_dir(self):
-        d = filedialog.askdirectory(initialdir=self.var_data.get(), mustexist=False)
+    def _pick_data(self):
+        d = filedialog.askdirectory(
+            initialdir=self.var_data.get(), mustexist=False)
         if d:
             self.var_data.set(d)
 
-    # ------------- Install workflow -------------
+    # --------------------------------------------------------
+    # Install kick-off
+    # --------------------------------------------------------
     def _on_install(self):
+        # Validate port
         try:
             port = int(self.var_port.get())
-            if not (1 <= port <= 65535):
+            if not 1 <= port <= 65535:
                 raise ValueError
         except ValueError:
-            messagebox.showerror("Invalid port", "Port must be an integer between 1 and 65535.")
+            messagebox.showerror(
+                "Ungültiger Port",
+                "Port muss zwischen 1 und 65535 liegen.")
             return
 
         install_dir = Path(self.var_install.get()).resolve()
-        data_dir    = Path(self.var_data.get()).resolve()
-        if str(install_dir).strip() == "" or str(data_dir).strip() == "":
-            messagebox.showerror("Invalid directories", "Please choose both install and data directories.")
+        data_dir = Path(self.var_data.get()).resolve()
+
+        if not str(install_dir).strip() or not str(data_dir).strip():
+            messagebox.showerror(
+                "Verzeichnis fehlt",
+                "Bitte beide Verzeichnisse angeben.")
             return
 
-        # Disable UI
+        display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
+        secret_key = self.var_secret_key.get().strip()
+
         self.btn_install.configure(state="disabled")
+        self.btn_uninstall.configure(state="disabled")
+        ProgressWindow(self, install_dir, data_dir, port,
+                       display_name, secret_key)
 
-        # Show splash/progress modal
-        self._show_splash()
+    # --------------------------------------------------------
+    # Uninstall kick-off
+    # --------------------------------------------------------
+    def _on_uninstall(self):
+        install_dir = Path(self.var_install.get()).resolve()
+        data_dir = Path(self.var_data.get()).resolve()
 
-        # Run the installation in a worker thread
-        worker = threading.Thread(
-            target=self._install_worker,
-            args=(install_dir, data_dir, port),
-            daemon=True
+        if not str(install_dir).strip():
+            messagebox.showerror(
+                "Verzeichnis fehlt",
+                "Bitte das Installationsverzeichnis angeben.")
+            return
+
+        # Ask for confirmation
+        keep_data = messagebox.askyesno(
+            "Daten behalten?",
+            "Sollen die Benutzerdaten (Datenbank, Backups, Logs) "
+            "erhalten bleiben?\n\n"
+            "  Ja  →  Nur Programm und Dienst entfernen\n"
+            "  Nein →  ALLES löschen (unwiderruflich!)",
+            icon="warning",
         )
-        worker.start()
+
+        confirm = messagebox.askyesno(
+            "Deinstallation bestätigen",
+            f"Folgendes wird entfernt:\n\n"
+            f"  • Windows-Dienst: {SERVICE_NAME}\n"
+            f"  • Firewall-Regel\n"
+            f"  • Geplanter Task\n"
+            f"  • Installationsverzeichnis:\n"
+            f"    {install_dir}\n"
+            + (f"  • Datenverzeichnis:\n"
+               f"    {data_dir}\n"
+               if not keep_data else "") +
+            "\nFortfahren?",
+            icon="warning",
+        )
+        if not confirm:
+            return
+
+        self.btn_install.configure(state="disabled")
+        self.btn_uninstall.configure(state="disabled")
+        display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
+        UninstallProgressWindow(
+            self, install_dir, data_dir,
+            keep_data=keep_data,
+            display_name=display_name)
 
 
-    def _show_splash(self):
-        self.splash = tk.Toplevel(self)
-        self.splash.title("Installing...")
-        self.splash.geometry("580x260+100+100")
-        self.splash.resizable(False, False)
-        self.splash.transient(self)
-        self.splash.grab_set()
+# ========================================================
+# PROGRESS / LOADING SCREEN
+# ========================================================
+class ProgressWindow(tk.Toplevel):
+    """Modal loading screen with animated progress bar and log."""
 
-        # Content
-        wrapper = ttk.Frame(self.splash, padding=16)
-        wrapper.pack(fill="both", expand=True)
+    def __init__(self, parent: InstallerApp,
+                 install_dir: Path, data_dir: Path, port: int,
+                 display_name: str, secret_key: str):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.install_dir = install_dir
+        self.data_dir = data_dir
+        self.port = port
+        self.display_name = display_name
+        self.secret_key = secret_key
 
-        ttk.Label(wrapper, text=f"Installing {APP_NAME} ...", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        self.title("Installation läuft …")
+        self.geometry("660x400")
+        self.resizable(False, False)
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)  # block close
 
-        self.progress = ttk.Progressbar(wrapper, mode="determinate", length=520, maximum=100)
-        self.progress.pack(pady=(12, 8), anchor="w")
-        self.progress["value"] = 0
+        self._build()
+        self._start_worker()
 
-        self.log_text = tk.Text(wrapper, height=8, width=70, wrap="word")
-        self.log_text.pack(fill="both", expand=True)
+    def _build(self):
+        tk.Label(
+            self, text=f"{self.display_name} wird installiert …",
+            bg=BG_DARK, fg=FG_TEXT,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w", padx=20, pady=(18, 6))
+
+        # Progress bar
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "install.Horizontal.TProgressbar",
+            troughcolor=BG_CARD,
+            background=ACCENT,
+            thickness=22,
+        )
+        self.progress = ttk.Progressbar(
+            self, style="install.Horizontal.TProgressbar",
+            orient="horizontal", length=610,
+            mode="determinate", maximum=100,
+        )
+        self.progress.pack(padx=20, pady=(0, 10))
+
+        # Step label
+        self.step_label = tk.Label(
+            self, text="Vorbereitung …", bg=BG_DARK,
+            fg="#94a3b8", font=("Segoe UI", 9),
+        )
+        self.step_label.pack(anchor="w", padx=20)
+
+        # Log text
+        self.log_text = tk.Text(
+            self, height=12, wrap="word",
+            bg="#0f172a", fg="#e2e8f0",
+            font=("Consolas", 9),
+            relief="flat", borderwidth=0,
+            insertbackground=FG_TEXT,
+        )
+        self.log_text.pack(fill="both", expand=True,
+                           padx=20, pady=(8, 12))
         self.log_text.configure(state="disabled")
 
-        self.splash.update_idletasks()
+        # Button row (hidden until done)
+        self.btn_frame = tk.Frame(self, bg=BG_DARK)
+        self.btn_frame.pack(fill="x", padx=20, pady=(0, 14))
 
+    # ---- Logging helpers (thread-safe via after) ----
     def _log(self, line: str):
-        if not self.log_text:
-            return
+        self.after(0, self._log_ui, line)
+
+    def _log_ui(self, line: str):
         self.log_text.configure(state="normal")
         self.log_text.insert("end", line.rstrip() + "\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
-        self.splash.update_idletasks()
 
-    def _set_progress(self, pct: int):
-        if self.progress:
-            self.progress["value"] = pct
-            self.splash.update_idletasks()
+    def _set_progress(self, pct: int, label: str = ""):
+        self.after(0, self._set_progress_ui, pct, label)
 
-    def _install_worker(self, install_dir: Path, data_dir: Path, port: int):
-        steps = [
-            ("Creating directories", lambda: self._create_dirs(install_dir, data_dir)),
-            ("Unpacking NSSM",      lambda: self._ensure_nssm(install_dir)),
-            ("Copying application", lambda: self._copy_app(install_dir)),
-            ("Seeding database",    lambda: self._seed_db(data_dir)),
-            #("Opening firewall",    lambda: open_firewall(port)),
-            #("Installing service",  lambda: self._install_service(install_dir, data_dir, port)),
-            #("Starting service",    lambda: self._start_service()),
-        ]
-        pct_step = int(100 / max(len(steps), 1))
-        cur = 0
+    def _set_progress_ui(self, pct: int, label: str):
+        self.progress["value"] = min(pct, 100)
+        if label:
+            self.step_label.configure(text=label)
+
+    def _show_result_buttons(self, success: bool, url: str = ""):
+        self.after(0, self._show_buttons_ui, success, url)
+
+    def _show_buttons_ui(self, success: bool, url: str):
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        if success and url:
+            tk.Button(
+                self.btn_frame, text="  Im Browser öffnen  ",
+                font=("Segoe UI", 10, "bold"),
+                bg=ACCENT, fg="white", relief="flat",
+                command=lambda: __import__("webbrowser").open(url),
+            ).pack(side="left")
+        tk.Button(
+            self.btn_frame, text="  Schließen  ",
+            font=("Segoe UI", 10),
+            bg="#64748b", fg="white", relief="flat",
+            command=self._close,
+        ).pack(side="right")
+
+    def _close(self):
         try:
-            for title, fn in steps:
-                self._log(f"[+] {title} ...")
-                fn()
-                cur += pct_step
-                self._set_progress(min(cur, 100))
-            # Success
-            ip = get_primary_ipv4() or "localhost"
-            url = f"http://{ip}:{port}/"
-            self._log("")
-            self._log(f"=== INSTALL COMPLETE ===")
-            self._log(f"Install dir: {install_dir}")
-            self._log(f"Data dir:    {data_dir}")
-            self._log(f"Service:     {SERVICE_NAME}")
-            self._log(f"Open in browser: {url}")
-
-            ttk.Button(self.splash, text="Open in Browser",
-                       command=lambda: self._open_url(url)).pack(pady=(8, 0))
-            ttk.Button(self.splash, text="Close", command=self._finish_ok).pack(pady=(6, 8))
-        except subprocess.CalledProcessError as cpe:
-            self._log("")
-            self._log(f"ERROR (exit {cpe.returncode}): {cpe.stderr or cpe.stdout}")
-            messagebox.showerror("Installation failed", cpe.stderr or cpe.stdout or str(cpe))
-            self._finish_fail()
-        except Exception as ex:
-            self._log("")
-            self._log(f"ERROR: {ex}")
-            messagebox.showerror("Installation failed", str(ex))
-            self._finish_fail()
-
-    def _finish_ok(self):
-        try:
-            self.splash.grab_release()
+            self.grab_release()
         except Exception:
             pass
-        self.splash.destroy()
         self.destroy()
+        self.parent_app.btn_install.configure(state="normal")
+        self.parent_app.btn_uninstall.configure(state="normal")
 
-    def _finish_fail(self):
-        self.btn_install.configure(state="normal")
+    # ---- Worker thread ----
+    def _start_worker(self):
+        threading.Thread(
+            target=self._worker, daemon=True).start()
+
+    def _worker(self):
+        steps = [
+            ("Verzeichnisse anlegen",         self._step_dirs),
+            ("NSSM bereitstellen",            self._step_nssm),
+            ("Anwendung kopieren",            self._step_app),
+            ("Datenbank vorbereiten",         self._step_db),
+            ("Firewall-Regel erstellen",      self._step_firewall),
+            ("Windows-Dienst installieren",   self._step_service),
+            ("Dienst starten",                self._step_start),
+            ("Tägliches Update einrichten",   self._step_update_task),
+        ]
+        total = len(steps)
         try:
-            self.splash.grab_release()
+            for i, (title, fn) in enumerate(steps):
+                pct = int((i / total) * 100)
+                self._set_progress(pct, title)
+                self._log(f"[{i+1}/{total}] {title} …")
+                fn()
+                time.sleep(0.15)  # small delay for visual feedback
+
+            self._set_progress(100, "Installation abgeschlossen ✓")
+            self._log("")
+            ip = get_primary_ipv4() or "localhost"
+            url = f"http://{ip}:{self.port}/"
+            self._log("═" * 50)
+            self._log("  Installation erfolgreich!")
+            self._log(f"  Installationsverzeichnis: {self.install_dir}")
+            self._log(f"  Datenverzeichnis:         {self.data_dir}")
+            self._log(f"  Dienst:                   {SERVICE_NAME}")
+            self._log(f"  URL:  {url}")
+            self._log("═" * 50)
+            self._show_result_buttons(True, url)
+
+        except Exception as ex:
+            self._log(f"\n✗ FEHLER: {ex}")
+            self._set_progress(0, "Installation fehlgeschlagen")
+            self._show_result_buttons(False)
+
+    # ---- Individual install steps ----
+    def _step_dirs(self):
+        logic.create_directories(
+            self.install_dir, self.data_dir, log=self._log)
+
+    def _step_nssm(self):
+        src = resource_path(PAYLOAD_NSSM)
+        target = logic.deploy_nssm(src, self.install_dir, log=self._log)
+        self.parent_app.nssm = target
+
+    def _step_app(self):
+        src = resource_path(PAYLOAD_APP)
+        target = logic.deploy_app_exe(src, self.install_dir, log=self._log)
+        self.parent_app.app_exe = target
+
+    def _step_db(self):
+        seed = resource_path(PAYLOAD_SEED_DB)
+        logic.seed_database(seed, self.data_dir, log=self._log)
+
+    def _step_firewall(self):
+        logic.add_firewall_rule(self.port, log=self._log)
+
+    def _step_service(self):
+        nssm = self.parent_app.nssm
+        app_exe = self.parent_app.app_exe
+        logic.install_service(
+            nssm, app_exe, self.data_dir, self.port,
+            self.install_dir,
+            display_name=self.display_name,
+            secret_key=self.secret_key,
+            log=self._log)
+
+    def _step_start(self):
+        logic.start_service(self.parent_app.nssm, log=self._log)
+
+    def _step_update_task(self):
+        logic.create_update_task(log=self._log)
+
+
+# ========================================================
+# UNINSTALL PROGRESS SCREEN
+# ========================================================
+class UninstallProgressWindow(tk.Toplevel):
+    """Modal window that reverses all installation steps."""
+
+    def __init__(self, parent: InstallerApp,
+                 install_dir: Path, data_dir: Path,
+                 keep_data: bool, display_name: str = "Reifenmanager"):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.install_dir = install_dir
+        self.data_dir = data_dir
+        self.keep_data = keep_data
+        self.display_name = display_name
+
+        self.title("Deinstallation läuft …")
+        self.geometry("660x400")
+        self.resizable(False, False)
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        self._build()
+        self._start_worker()
+
+    def _build(self):
+        tk.Label(
+            self, text=f"{self.display_name} wird deinstalliert …",
+            bg=BG_DARK, fg=FG_TEXT,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w", padx=20, pady=(18, 6))
+
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "uninstall.Horizontal.TProgressbar",
+            troughcolor=BG_CARD,
+            background=ERROR_CLR,
+            thickness=22,
+        )
+        self.progress = ttk.Progressbar(
+            self, style="uninstall.Horizontal.TProgressbar",
+            orient="horizontal", length=610,
+            mode="determinate", maximum=100,
+        )
+        self.progress.pack(padx=20, pady=(0, 10))
+
+        self.step_label = tk.Label(
+            self, text="Vorbereitung …", bg=BG_DARK,
+            fg="#94a3b8", font=("Segoe UI", 9),
+        )
+        self.step_label.pack(anchor="w", padx=20)
+
+        self.log_text = tk.Text(
+            self, height=12, wrap="word",
+            bg="#0f172a", fg="#e2e8f0",
+            font=("Consolas", 9),
+            relief="flat", borderwidth=0,
+            insertbackground=FG_TEXT,
+        )
+        self.log_text.pack(fill="both", expand=True,
+                           padx=20, pady=(8, 12))
+        self.log_text.configure(state="disabled")
+
+        self.btn_frame = tk.Frame(self, bg=BG_DARK)
+        self.btn_frame.pack(fill="x", padx=20, pady=(0, 14))
+
+    # ---- Thread-safe UI helpers ----
+    def _log(self, line: str):
+        self.after(0, self._log_ui, line)
+
+    def _log_ui(self, line: str):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", line.rstrip() + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _set_progress(self, pct: int, label: str = ""):
+        self.after(0, self._set_progress_ui, pct, label)
+
+    def _set_progress_ui(self, pct: int, label: str):
+        self.progress["value"] = min(pct, 100)
+        if label:
+            self.step_label.configure(text=label)
+
+    def _show_result_buttons(self, success: bool):
+        self.after(0, self._show_buttons_ui, success)
+
+    def _show_buttons_ui(self, success: bool):
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        tk.Button(
+            self.btn_frame, text="  Schließen  ",
+            font=("Segoe UI", 10),
+            bg="#64748b", fg="white", relief="flat",
+            command=self._close,
+        ).pack(side="right")
+
+    def _close(self):
+        try:
+            self.grab_release()
         except Exception:
             pass
-        # Keep splash open so logs remain visible
+        self.destroy()
+        self.parent_app.btn_install.configure(state="normal")
+        self.parent_app.btn_uninstall.configure(state="normal")
 
-    def _open_url(self, url: str):
-        import webbrowser
-        webbrowser.open(url)
+    # ---- Worker thread ----
+    def _start_worker(self):
+        threading.Thread(
+            target=self._worker, daemon=True).start()
 
-    # ------------- actual step implementations -------------
-    def _create_dirs(self, install_dir: Path, data_dir: Path):
-        ensure_dir(install_dir)
-        ensure_dir(data_dir)
-        ensure_dir(data_dir / "backups")
-        ensure_dir(data_dir / "logs")
-
-    def _ensure_nssm(self, install_dir: Path):
-        found = which("nssm.exe")
-        if found:
-            self.nssm = found
-            self._log(f"Using NSSM in PATH: {found}")
-            return
-        self._log("Bundled NSSM will be installed.")
-        nssm_dir = install_dir / "nssm"
-        ensure_dir(nssm_dir)
-        target = nssm_dir / "nssm.exe"
-        if not copy_payload(PAYLOAD_NSSM, target, overwrite=True):
-            raise RuntimeError("Bundled nssm.exe not found in payload; cannot continue.")
-        self.nssm = target
-
-    def _copy_app(self, install_dir: Path):
-        app_src_rel = PAYLOAD_APP
-        app_dst = install_dir / f"{APP_NAME}.exe"
-        if not copy_payload(app_src_rel, app_dst, overwrite=True):
-            raise RuntimeError(f"Bundled application EXE not found at payload/{APP_NAME}.exe")
-        self.app_exe = app_dst
-
-    def _seed_db(self, data_dir: Path):
-        db_path = data_dir / "tires.db"
-        seed_path = resource_path(PAYLOAD_SEED_DB)
-        if not db_path.exists() and seed_path.exists():
-            shutil.copy2(seed_path, db_path)
-            self._log("Seeded database from payload.")
-        else:
-            self._log("Database already present (or no seed).")
-
-    def _install_service(self, install_dir: Path, data_dir: Path, port: int):
-        # Your app should accept: --host, --port, --data-dir
-        svc_cmd = [
-            str(self.nssm), "install", SERVICE_NAME,
-            str(self.app_exe),
-            "--host", "0.0.0.0",
-            "--port", str(port),
-            "--data-dir", str(data_dir),
+    def _worker(self):
+        steps = [
+            ("Dienst stoppen",              self._step_stop_service),
+            ("Windows-Dienst entfernen",    self._step_remove_service),
+            ("Geplanten Task entfernen",    self._step_remove_task),
+            ("Firewall-Regel entfernen",    self._step_remove_firewall),
+            ("Programmdateien entfernen",   self._step_remove_install),
         ]
-        run_cmd(svc_cmd, check=True)
-        # Working dir
-        run_cmd([str(self.nssm), "set", SERVICE_NAME, "AppDirectory", str(install_dir)], check=True)
-        # Auto-start
-        run_cmd([str(self.nssm), "set", SERVICE_NAME, "Start", "SERVICE_AUTO_START"], check=True)
-        # Stdout/err logs to DataDir\logs
-        run_cmd([str(self.nssm), "set", SERVICE_NAME, "AppStdout", str(data_dir / "logs" / "stdout.log")], check=True)
-        run_cmd([str(self.nssm), "set", SERVICE_NAME, "AppStderr", str(data_dir / "logs" / "stderr.log")], check=True)
+        if not self.keep_data:
+            steps.append(
+                ("Datenverzeichnis entfernen", self._step_remove_data))
 
-    def _start_service(self):
-        run_cmd(["sc.exe", "start", SERVICE_NAME], check=False)
+        total = len(steps)
+        try:
+            for i, (title, fn) in enumerate(steps):
+                pct = int((i / total) * 100)
+                self._set_progress(pct, title)
+                self._log(f"[{i+1}/{total}] {title} …")
+                fn()
+                time.sleep(0.15)
 
-# -------------------- Entrypoint --------------------
+            self._set_progress(100, "Deinstallation abgeschlossen ✓")
+            self._log("")
+            self._log("═" * 50)
+            self._log("  Deinstallation erfolgreich!")
+            if self.keep_data:
+                self._log(f"  Daten erhalten in: {self.data_dir}")
+            self._log("═" * 50)
+            self._show_result_buttons(True)
+
+        except Exception as ex:
+            self._log(f"\n✗ FEHLER: {ex}")
+            self._set_progress(0, "Deinstallation fehlgeschlagen")
+            self._show_result_buttons(False)
+
+    # ---- Individual uninstall steps ----
+    def _step_stop_service(self):
+        logic.stop_service(self.install_dir, log=self._log)
+        time.sleep(1)
+
+    def _step_remove_service(self):
+        logic.remove_service(self.install_dir, log=self._log)
+
+    def _step_remove_task(self):
+        logic.remove_scheduled_task(log=self._log)
+
+    def _step_remove_firewall(self):
+        try:
+            ui_port = int(self.parent_app.var_port.get())
+        except (ValueError, AttributeError):
+            ui_port = None
+        logic.remove_firewall_rules(extra_port=ui_port, log=self._log)
+
+    def _step_remove_install(self):
+        logic.remove_install_dir(self.install_dir, log=self._log)
+
+    def _step_remove_data(self):
+        logic.remove_data_dir(self.data_dir, log=self._log)
+
+
+# ========================================================
+# ENTRY POINT
+# ========================================================
 def main():
-    app = InstallerGUI()
+    app = InstallerApp()
     app.mainloop()
+
 
 if __name__ == "__main__":
     main()

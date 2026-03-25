@@ -9,7 +9,8 @@ Utils: leichter CSRF Schutz
 # ========================================================
 # IMPORTS
 # ========================================================
-import os, sys
+import os
+import sys
 import secrets
 from flask import session, request, abort
 
