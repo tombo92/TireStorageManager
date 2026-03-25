@@ -1,5 +1,43 @@
 // TireStorage Manager UI helpers
 // - Position size zoom (A-/A+) with persistence (localStorage)
+// - Splash screen on first visit per session
+
+// =========================================================
+//  Splash / Loading Screen (once per browser session)
+// =========================================================
+(function () {
+  const KEY = 'tsm.splashShown';
+  const SPLASH_DURATION_MS = 2400;   // matches CSS progress bar animation
+
+  function initSplash() {
+    const splash = document.getElementById('splashScreen');
+    if (!splash) return;
+
+    // Already shown this session? Remove immediately.
+    try {
+      if (sessionStorage.getItem(KEY)) {
+        splash.remove();
+        return;
+      }
+    } catch (_) { /* private mode – show splash anyway */ }
+
+    // Mark as shown for this session
+    try { sessionStorage.setItem(KEY, '1'); } catch (_) {}
+
+    // After the progress bar fills, fade out and remove
+    setTimeout(function () {
+      splash.classList.add('splash-hidden');
+      setTimeout(function () { splash.remove(); }, 700);
+    }, SPLASH_DURATION_MS);
+  }
+
+  // Run immediately (script is at end of <body>)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSplash);
+  } else {
+    initSplash();
+  }
+})();
 
 (function () {
   const KEY = "tsm.posZoom";               // 'normal' | '125' | '150'
@@ -216,4 +254,158 @@
 
   // Expose for the main IIFE
   window.initIdleScreensaver = initIdleScreensaver;
+})();
+
+// =========================================================
+//  Update check – AJAX polling on page load + settings page
+// =========================================================
+(function () {
+  var BANNER_DISMISSED_KEY = 'tsm.updateBannerDismissed';
+
+  /**
+   * Simple Markdown-to-HTML converter for release notes.
+   * Handles: headers, bold, italic, lists, links, line breaks.
+   */
+  function simpleMarkdown(md) {
+    if (!md) return '';
+    var html = md
+      // Escape HTML entities
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      // Headers (### → <h6>, ## → <h5>)
+      .replace(/^### (.+)$/gm, '<h6 class="mt-2 mb-1">$1</h6>')
+      .replace(/^## (.+)$/gm, '<h5 class="mt-2 mb-1">$1</h5>')
+      // Bold and italic
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      // Unordered list items
+      .replace(/^[*-] (.+)$/gm, '<li>$1</li>')
+      // Links [text](url)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+        '<a href="$2" target="_blank" class="alert-link">$1</a>')
+      // Line breaks
+      .replace(/\n/g, '<br>');
+    // Wrap consecutive <li> in <ul>
+    html = html.replace(/((?:<li>.*?<\/li><br>?)+)/g, function (m) {
+      return '<ul class="mb-1">' + m.replace(/<br>/g, '') + '</ul>';
+    });
+    return html;
+  }
+
+  function handleUpdateInfo(data) {
+    // ── Banner (all pages) ──
+    var banner = document.getElementById('updateBanner');
+    if (banner && data.update_available) {
+      var dismissed = null;
+      try { dismissed = sessionStorage.getItem(BANNER_DISMISSED_KEY); } catch (_) {}
+      if (dismissed !== data.remote_version) {
+        document.getElementById('bannerRemoteVersion').textContent =
+          'v' + data.remote_version;
+        var autoMsg = document.getElementById('bannerAutoMsg');
+        if (autoMsg) {
+          autoMsg.textContent = ' Das Update wird beim nächsten Service-Neustart installiert.';
+        }
+        if (data.release_url) {
+          var link = document.getElementById('bannerReleaseLink');
+          if (link) {
+            link.href = data.release_url;
+            link.classList.remove('d-none');
+          }
+        }
+        banner.classList.remove('d-none');
+        banner.classList.add('show');
+        // When user dismisses, remember for this session+version
+        banner.addEventListener('closed.bs.alert', function () {
+          try {
+            sessionStorage.setItem(BANNER_DISMISSED_KEY, data.remote_version);
+          } catch (_) {}
+        });
+      }
+    }
+
+    // ── Settings page elements ──
+    var remoteEl = document.getElementById('updateRemoteVersion');
+    var upToDateEl = document.getElementById('updateUpToDate');
+    var updateNowForm = document.getElementById('updateNowForm');
+    var releaseNotesDiv = document.getElementById('updateReleaseNotes');
+
+    if (remoteEl && upToDateEl) {
+      if (data.update_available) {
+        remoteEl.querySelector('strong').textContent = 'v' + data.remote_version;
+        remoteEl.classList.remove('d-none');
+        upToDateEl.classList.add('d-none');
+        if (updateNowForm) updateNowForm.classList.remove('d-none');
+        if (releaseNotesDiv && data.release_notes) {
+          releaseNotesDiv.querySelector('.update-release-body').innerHTML =
+            simpleMarkdown(data.release_notes);
+          releaseNotesDiv.classList.remove('d-none');
+        }
+      } else if (data.remote_version) {
+        remoteEl.classList.add('d-none');
+        upToDateEl.classList.remove('d-none');
+        if (updateNowForm) updateNowForm.classList.add('d-none');
+        if (releaseNotesDiv) releaseNotesDiv.classList.add('d-none');
+      }
+    }
+  }
+
+  function checkForUpdate(forceRefresh) {
+    var opts = { method: 'GET' };
+    var url = '/api/update-check';
+
+    if (forceRefresh) {
+      // POST with CSRF to force cache invalidation
+      var csrfMeta = document.querySelector('input[name="_csrf_token"]');
+      var token = csrfMeta ? csrfMeta.value : '';
+      opts = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '_csrf_token=' + encodeURIComponent(token)
+      };
+    }
+
+    fetch(url, opts)
+      .then(function (r) { return r.json(); })
+      .then(handleUpdateInfo)
+      .catch(function () { /* silent — no network */ });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    // Auto-check on every page load (GET, cached server-side)
+    checkForUpdate(false);
+
+    // Settings page: "Check now" button forces a fresh fetch
+    var btn = document.getElementById('btnCheckUpdate');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Prüfe …';
+        // POST forces cache invalidation, then re-fetch
+        var csrfInput = document.querySelector('input[name="_csrf_token"]');
+        var token = csrfInput ? csrfInput.value : '';
+        fetch('/api/update-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: '_csrf_token=' + encodeURIComponent(token)
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            handleUpdateInfo(data);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
+            if (!data.update_available) {
+              btn.innerHTML = '<i class="bi bi-check-circle text-success"></i> Aktuell';
+              setTimeout(function () {
+                btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
+              }, 3000);
+            }
+          })
+          .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
+          });
+      });
+    }
+  });
 })();

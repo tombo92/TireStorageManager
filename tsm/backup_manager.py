@@ -11,7 +11,7 @@ Backup Manager
 # ========================================================
 import os
 import csv
-import time
+import logging
 import threading
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 # Local Imports
 # --------------------------------------------------------
 from config import BACKUP_DIR
-from tsm.db import engine, SessionLocal
+from tsm.db import SessionLocal
 from tsm.models import WheelSet, Settings, AuditLog
 
 
@@ -29,49 +29,53 @@ from tsm.models import WheelSet, Settings, AuditLog
 class BackupManager(threading.Thread):
     daemon = True
 
+    _log = logging.getLogger("TSM.backup")
+
     def __init__(self, engine, backup_dir):
         super().__init__()
         self.engine = engine
         self.backup_dir = backup_dir
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._last_run = None
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 db = SessionLocal()
-                settings = db.query(Settings).first()
-                if settings is None:
-                    settings = Settings(backup_interval_minutes=60,
-                                        backup_copies=10)
-                    db.add(settings)
-                    db.commit()
-                interval = max(1, int(settings.backup_interval_minutes))
-                due = False
-                if self._last_run is None:
-                    self._last_run = datetime.now(timezone.utc)
-                else:
-                    if ((datetime.now(timezone.utc) - self._last_run) >=
-                        timedelta(minutes=interval)):
+                try:
+                    settings = db.query(Settings).first()
+                    if settings is None:
+                        settings = Settings(backup_interval_minutes=60,
+                                            backup_copies=10)
+                        db.add(settings)
+                        db.commit()
+                    interval = max(1, int(settings.backup_interval_minutes))
+                    due = False
+                    if self._last_run is None:
+                        self._last_run = datetime.now(timezone.utc)
+                    elif ((datetime.now(timezone.utc) - self._last_run)
+                          >= timedelta(minutes=interval)):
                         due = True
-                db.close()
+                finally:
+                    SessionLocal.remove()
                 if due:
                     self.perform_backup()
                     self._last_run = datetime.now(timezone.utc)
             except Exception:
-                pass
-            time.sleep(30)
+                self._log.warning("BackupManager loop error",
+                                  exc_info=True)
+            self._stop_event.wait(30)
 
     def perform_backup(self):
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         bfile = os.path.join(self.backup_dir, f"wheel_storage_{ts}.db")
 
-        raw = engine.raw_connection()
+        raw = self.engine.raw_connection()
         try:
-            src = raw.connection  # sqlite3.Connection
+            src = raw.driver_connection  # sqlite3.Connection
             dest = sqlite3.connect(bfile)
             try:
                 with dest:
@@ -116,7 +120,7 @@ class BackupManager(threading.Thread):
                     except Exception:
                         pass
         finally:
-            db.close()
+            SessionLocal.remove()
 
 
 # ========================================================
@@ -150,4 +154,4 @@ def export_csv_snapshot(target_path: str | None = None) -> str:
         db.commit()
         return target_path
     finally:
-        db.close()
+        SessionLocal.remove()

@@ -9,11 +9,12 @@ All routes attached to app
 # ========================================================
 # IMPORTS
 # ========================================================
+import json
 import os
 from datetime import datetime
 from flask import (
     request, redirect, url_for, flash, render_template, abort,
-    send_from_directory
+    send_from_directory, jsonify
 )
 from sqlalchemy.exc import IntegrityError
 
@@ -23,13 +24,19 @@ from sqlalchemy.exc import IntegrityError
 from tsm.db import SessionLocal
 from tsm.models import WheelSet, Settings, AuditLog
 from tsm.positions import (
-    is_valid_position, SORTED_POSITIONS, get_occupied_positions,
+    is_valid_position, get_occupied_positions,
     first_free_position, free_positions, get_disabled_positions,
-    is_usable_position, position_sort_key
+    is_usable_position, position_sort_key, get_effective_positions,
+    save_custom_positions, reset_custom_positions,
+    SORTED_POSITIONS,
 )
 from tsm.utils import validate_csrf
 # for route use (CSV)
 from tsm.backup_manager import export_csv_snapshot
+from tsm.self_update import (
+    get_update_info, invalidate_update_cache,
+    check_for_update, _is_frozen,
+)
 from config import BACKUP_DIR
 
 
@@ -54,6 +61,25 @@ def log_action(db, action, wheelset_id=None, details=None):
 # Routes
 # --------------------------------------------------------
 def register_routes(app):
+    # ---- dark-mode context processor (shared everywhere) ----
+    # Cache the value in app.config to avoid a DB query on every request.
+    # Refreshed when settings are saved.
+    def _refresh_dark_mode():
+        db = SessionLocal()
+        try:
+            s = db.query(Settings).first()
+            app.config["_TSM_DARK_MODE"] = s.dark_mode if s else False
+        except Exception:
+            app.config.setdefault("_TSM_DARK_MODE", False)
+        finally:
+            SessionLocal.remove()
+
+    _refresh_dark_mode()
+
+    @app.context_processor
+    def inject_dark_mode():
+        return {"dark_mode": app.config.get("_TSM_DARK_MODE", False)}
+
     @app.route("/")
     def index():
         db = SessionLocal()
@@ -94,7 +120,8 @@ def register_routes(app):
                 if request.method == "GET" else None
             occupied = get_occupied_positions(db)
             disabled = get_disabled_positions(db)
-            pos_choices = [p for p in SORTED_POSITIONS
+            effective = get_effective_positions(db)
+            pos_choices = [p for p in effective
                            if p not in occupied and p not in disabled]
 
             if request.method == "POST":
@@ -164,11 +191,16 @@ def register_routes(app):
             occupied = get_occupied_positions(db)
             occupied.discard(w.storage_position)
             disabled = get_disabled_positions(db)
+            effective = get_effective_positions(db)
             # Current position may be disabled later;
             # keep it selectable for editing,
             # but disallow changing to other disabled ones.
-            pos_choices = [p for p in SORTED_POSITIONS if
-                           (p not in occupied) and (p not in disabled or p == w.storage_position)]
+            pos_choices = [
+                p for p in effective if
+                (p not in occupied)
+                and (p not in disabled
+                     or p == w.storage_position)
+            ]
             if request.method == "POST":
                 validate_csrf()
                 customer_name = request.form.get("customer_name", "").strip()
@@ -286,22 +318,102 @@ def register_routes(app):
                 try:
                     interval = int(request.form.get(
                         "backup_interval_minutes", "60"))
-                    copies = int(request.form.get("backup_copies", "10"))
+                    copies = int(
+                        request.form.get("backup_copies", "10"))
                     s.backup_interval_minutes = max(1, interval)
                     s.backup_copies = max(1, copies)
+                    s.dark_mode = (
+                        request.form.get("dark_mode") == "1"
+                    )
+                    s.auto_update = (
+                        request.form.get("auto_update") == "1"
+                    )
                     db.commit()
-                    flash("Einstellungen gespeichert.", "success")
+                    _refresh_dark_mode()
+                    flash(
+                        "Einstellungen gespeichert.",
+                        "success",
+                    )
                 except Exception:
                     db.rollback()
-                    flash("Fehler beim Speichern der Einstellungen.", "error")
-            return render_template("settings.html", s=s, active="settings")
+                    flash(
+                        "Fehler beim Speichern.",
+                        "error",
+                    )
+            return render_template(
+                "settings.html", s=s, active="settings")
         finally:
             SessionLocal.remove()
+
+    # ---- Position editor routes ----
+    @app.route(
+        "/settings/positions", methods=["GET", "POST"]
+    )
+    def settings_positions():
+        db = SessionLocal()
+        try:
+            effective = get_effective_positions(db)
+            defaults = list(SORTED_POSITIONS)
+            is_custom = effective != defaults
+            if request.method == "POST":
+                validate_csrf()
+                action = request.form.get("action")
+                if action == "reset":
+                    reset_custom_positions(db)
+                    flash(
+                        "Positionen auf Standard zurückgesetzt.",
+                        "success",
+                    )
+                    return redirect(
+                        url_for("settings_positions"))
+                if action == "save":
+                    raw = request.form.get(
+                        "positions_text", "")
+                    lines = [
+                        ln.strip()
+                        for ln in raw.splitlines()
+                        if ln.strip()
+                    ]
+                    if not lines:
+                        flash(
+                            "Mindestens eine Position "
+                            "erforderlich.",
+                            "error",
+                        )
+                        return redirect(
+                            url_for("settings_positions"))
+                    save_custom_positions(db, lines)
+                    flash(
+                        f"{len(lines)} Positionen "
+                        "gespeichert.",
+                        "success",
+                    )
+                    return redirect(
+                        url_for("settings_positions"))
+            return render_template(
+                "settings_positions.html",
+                positions=effective,
+                is_custom=is_custom,
+                active="settings",
+            )
+        finally:
+            SessionLocal.remove()
+
+    # ---- Impressum ----
+    @app.route("/impressum")
+    def impressum():
+        return render_template(
+            "impressum.html", active="impressum"
+        )
 
     @app.route("/backups")
     def backups():
         files = []
-        for f in os.listdir(BACKUP_DIR):
+        try:
+            entries = os.listdir(BACKUP_DIR)
+        except FileNotFoundError:
+            entries = []
+        for f in entries:
             if f.startswith("wheel_storage_") and (f.endswith(".db") or
                                                    f.endswith(".csv")):
                 p = os.path.join(BACKUP_DIR, f)
@@ -322,6 +434,9 @@ def register_routes(app):
 
     @app.route("/backups/download/<path:filename>")
     def download_backup(filename):
+        # Block path traversal attempts
+        if ("/" in filename or "\\" in filename or ".." in filename):
+            abort(403)
         if not (filename.startswith("wheel_storage_")
                 and (filename.endswith(".db") or filename.endswith(".csv"))):
             abort(403)
@@ -359,3 +474,49 @@ def register_routes(app):
             app.static_folder, "favicon.ico",
             mimetype="image/vnd.microsoft.icon"
         )
+
+    # ---- Update management API ----
+    @app.route("/api/update-check")
+    def api_update_check():
+        """AJAX endpoint: return update availability as JSON."""
+        info = get_update_info()
+        return jsonify(info)
+
+    @app.route("/api/update-check", methods=["POST"])
+    def api_update_check_refresh():
+        """Force-refresh the cached update info."""
+        validate_csrf()
+        invalidate_update_cache()
+        info = get_update_info()
+        return jsonify(info)
+
+    @app.route("/settings/update-now", methods=["POST"])
+    def update_now():
+        """Trigger an immediate update (frozen EXE only)."""
+        validate_csrf()
+        if not _is_frozen():
+            flash(
+                "Update kann nur in der installierten "
+                "Version (EXE) durchgeführt werden.",
+                "info",
+            )
+            return redirect(url_for("settings"))
+
+        try:
+            updated = check_for_update()
+            if updated:
+                flash(
+                    "Update wurde installiert — der "
+                    "Dienst wird neu gestartet.",
+                    "success",
+                )
+            else:
+                flash(
+                    "Kein Update verfügbar oder "
+                    "Update fehlgeschlagen.",
+                    "info",
+                )
+        except Exception as e:
+            flash(f"Update fehlgeschlagen: {e}", "error")
+
+        return redirect(url_for("settings"))
