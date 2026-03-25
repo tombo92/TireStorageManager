@@ -229,11 +229,16 @@ def _restart_service():
         f'sc.exe start {SERVICE_NAME}"'
     )
     log.info("Scheduling service restart ...")
+    # DETACHED_PROCESS and CREATE_NO_WINDOW are Windows-only constants;
+    # fall back to 0 on other platforms so tests pass on Linux CI.
+    _flags = (
+        getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
     try:
         subprocess.Popen(
             restart_cmd, shell=True,
-            creationflags=subprocess.DETACHED_PROCESS
-            | subprocess.CREATE_NO_WINDOW,
+            creationflags=_flags,
         )
     except Exception as e:
         log.error("Could not schedule restart: %s", e)
