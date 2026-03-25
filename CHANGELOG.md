@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.3] – 2026-03-25
+
 ### Added
 - **Update Management UI** – Check for updates from the web interface, see release notes, and trigger immediate updates from Settings.
 - Auto-update toggle in Settings (automatic update on service restart at 03:00).
