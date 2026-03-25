@@ -34,14 +34,16 @@ def ensure_dir(p: Path) -> None:
 def run_cmd(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     """Run a subprocess and return the result."""
     return subprocess.run(
-        cmd, check=check, capture_output=True, text=True, shell=False,
+        cmd, check=check, capture_output=True,
+        encoding="utf-8", errors="replace", shell=False,
     )
 
 
 def run_shell(cmd: str, check: bool = False) -> subprocess.CompletedProcess:
     """Run a shell command string and return the result."""
     return subprocess.run(
-        cmd, shell=True, capture_output=True, text=True,
+        cmd, shell=True, capture_output=True,
+        encoding="utf-8", errors="replace",
     )
 
 
@@ -285,17 +287,24 @@ def stop_service(
     # handles are released before we try to delete the install directory.
     exe_name = f"{APP_NAME}.exe"
     for _ in range(15):
-        result = run_shell(
-            f'tasklist /FI "IMAGENAME eq {exe_name}" /NH'
-        )
-        if exe_name.lower() not in result.stdout.lower():
-            break
+        try:
+            result = run_shell(
+                f'tasklist /FI "IMAGENAME eq {exe_name}" /NH'
+            )
+            stdout = (result.stdout or "").lower()
+            if exe_name.lower() not in stdout:
+                break
+        except Exception:
+            break  # can't check — assume it's gone and continue
         if log:
             log(f"   … warte auf Prozessende von {exe_name}")
         time.sleep(1)
     else:
         # Force-kill if still running after timeout
-        run_shell(f'taskkill /F /IM "{exe_name}"')
+        try:
+            run_shell(f'taskkill /F /IM "{exe_name}"')
+        except Exception:
+            pass
         time.sleep(1)
         if log:
             log(f"   ⚠ Prozess {exe_name} wurde zwangsbeendet.")

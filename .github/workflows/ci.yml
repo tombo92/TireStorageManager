@@ -189,6 +189,36 @@ jobs:
           }
           Write-Host "✓ Smoke test passed"
 
+      - name: Sign EXEs (self-signed certificate)
+        if: env.CODE_SIGN_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          CODE_SIGN_PFX_BASE64: ${{ secrets.CODE_SIGN_PFX_BASE64 }}
+          CODE_SIGN_PASSWORD:   ${{ secrets.CODE_SIGN_PASSWORD }}
+        run: |
+          # Write PFX from secret
+          $bytes = [Convert]::FromBase64String($env:CODE_SIGN_PFX_BASE64)
+          $pfx   = "$env:RUNNER_TEMP\tsm_codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, $bytes)
+
+          # Locate signtool.exe (comes with Windows SDK on windows-latest)
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "x64" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          $ts  = "http://timestamp.digicert.com"
+          $pwd = $env:CODE_SIGN_PASSWORD
+
+          foreach ($exe in @("dist\TireStorageManager.exe", "dist\TSM-Installer.exe")) {
+            & $signtool sign /f $pfx /p $pwd /fd sha256 /td sha256 /tr $ts $exe
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $exe" }
+            Write-Host "✓ Signed: $exe"
+          }
+
+          Remove-Item $pfx -Force
+
       - name: Read version from config.py
         id: version
         shell: pwsh
