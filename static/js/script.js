@@ -1,6 +1,101 @@
 // TireStorage Manager UI helpers
 // - Position size zoom (A-/A+) with persistence (localStorage)
 // - Splash screen on first visit per session
+// - Licence plate live validator (uppercase + validity indicator only)
+
+// =========================================================
+//  German licence-plate validator
+// =========================================================
+(function () {
+  // Matches the same pattern as the Python server-side validator:
+  //   1–3 letters (Unterscheidungszeichen)
+  //   optional separator (space or hyphen)
+  //   1–2 letters (Erkennungsbuchstaben)
+  //   optional separator
+  //   1–4 digits
+  //   optional separator + E or H suffix
+  var PLATE_RE = /^[A-ZÄÖÜ]{1,3}[\s\-]?[A-Z]{1,2}[\s\-]?\d{1,4}([\s\-]?[EH])?$/i;
+
+  function validatePlate(value) {
+    return PLATE_RE.test(value.trim());
+  }
+
+  function initPlateInput() {
+    var input = document.getElementById('license_plate');
+    if (!input) return;
+
+    var form = input.closest('form');
+
+    // Live: uppercase while typing (preserve caret) + update validity indicator
+    input.addEventListener('input', function () {
+      var pos   = input.selectionStart;
+      var upper = input.value.toUpperCase();
+      if (upper !== input.value) {
+        input.value = upper;
+        input.setSelectionRange(pos, pos);
+      }
+      updateState(input.value);
+    });
+
+    // On blur: only update the validity indicator, never rewrite the value
+    input.addEventListener('blur', function () {
+      if (input.value.trim()) {
+        updateState(input.value);
+      }
+    });
+
+    // Block form submit if plate is invalid
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        if (input.value.trim() && !validatePlate(input.value)) {
+          input.classList.add('is-invalid');
+          input.classList.remove('is-valid');
+          input.focus();
+          e.preventDefault();
+        }
+      });
+    }
+
+    // Show validity indicator for a pre-filled value (edit form)
+    if (input.value.trim()) {
+      updateState(input.value);
+    }
+
+    function updateState(val) {
+      if (!val.trim()) {
+        input.classList.remove('is-valid', 'is-invalid');
+        return;
+      }
+      if (validatePlate(val)) {
+        input.classList.add('is-valid');
+        input.classList.remove('is-invalid');
+      } else {
+        input.classList.add('is-invalid');
+        input.classList.remove('is-valid');
+      }
+    }
+  }
+
+  // Also upper-case the confirm_plate field on the delete page
+  function initConfirmPlate() {
+    var inp = document.getElementById('confirm_plate');
+    if (!inp) return;
+    inp.addEventListener('input', function () {
+      var pos = inp.selectionStart;
+      var up  = inp.value.toUpperCase();
+      if (up !== inp.value) {
+        inp.value = up;
+        inp.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    initPlateInput();
+    initConfirmPlate();
+  });
+})();
+
 
 // =========================================================
 //  Splash / Loading Screen (once per browser session)

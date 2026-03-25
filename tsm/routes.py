@@ -30,7 +30,11 @@ from tsm.positions import (
     save_custom_positions, reset_custom_positions,
     SORTED_POSITIONS,
 )
-from tsm.utils import validate_csrf
+from tsm.utils import (
+    validate_csrf,
+    is_valid_license_plate,
+    normalize_license_plate,
+)
 # for route use (CSV)
 from tsm.backup_manager import export_csv_snapshot
 from tsm.self_update import (
@@ -127,7 +131,8 @@ def register_routes(app):
             if request.method == "POST":
                 validate_csrf()
                 customer_name = request.form.get("customer_name", "").strip()
-                license_plate = request.form.get("license_plate", "").strip()
+                license_plate = normalize_license_plate(
+                    request.form.get("license_plate", ""))
                 car_type = request.form.get("car_type", "").strip()
                 note = (request.form.get("note", "") or "").strip() or None
                 storage_position = request.form.get(
@@ -136,6 +141,14 @@ def register_routes(app):
                 if not (customer_name and license_plate and car_type and
                         storage_position):
                     flash("Bitte alle Pflichtfelder ausfüllen.", "error")
+                    return redirect(url_for("create_wheelset"))
+
+                if not is_valid_license_plate(license_plate):
+                    flash(
+                        "Ungültiges Kennzeichen. "
+                        "Bitte deutsches Format verwenden, z. B. M AB 1234.",
+                        "error",
+                    )
                     return redirect(url_for("create_wheelset"))
 
                 if not is_valid_position(storage_position):
@@ -204,7 +217,8 @@ def register_routes(app):
             if request.method == "POST":
                 validate_csrf()
                 customer_name = request.form.get("customer_name", "").strip()
-                license_plate = request.form.get("license_plate", "").strip()
+                license_plate = normalize_license_plate(
+                    request.form.get("license_plate", ""))
                 car_type = request.form.get("car_type", "").strip()
                 note_input = (request.form.get("note") or "").strip()
                 note = None if (not note_input or note_input.lower() == "none") else note_input
@@ -214,6 +228,14 @@ def register_routes(app):
                 if not (customer_name and license_plate and car_type and
                         storage_position):
                     flash("Bitte alle Pflichtfelder ausfüllen.", "error")
+                    return redirect(url_for("edit_wheelset", wid=wid))
+
+                if not is_valid_license_plate(license_plate):
+                    flash(
+                        "Ungültiges Kennzeichen. "
+                        "Bitte deutsches Format verwenden, z. B. M AB 1234.",
+                        "error",
+                    )
                     return redirect(url_for("edit_wheelset", wid=wid))
 
                 if not is_valid_position(storage_position):
