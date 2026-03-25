@@ -267,6 +267,7 @@ class TestFavicon:
         resp = client.get("/favicon.ico")
         # May be 200 (file exists) or 404 (no file in test)
         assert resp.status_code in (200, 404)
+        resp.close()
 
 
 # ── Helper ─────────────────────────────────────────────

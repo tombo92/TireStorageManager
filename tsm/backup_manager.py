@@ -71,7 +71,7 @@ class BackupManager(threading.Thread):
 
         raw = engine.raw_connection()
         try:
-            src = raw.connection  # sqlite3.Connection
+            src = raw.driver_connection  # sqlite3.Connection
             dest = sqlite3.connect(bfile)
             try:
                 with dest:

@@ -93,7 +93,7 @@ def disable_position(db, code: str, reason: str | None = None) -> bool:
     """
     if not is_valid_position(code):
         return False
-    if db.query(DisabledPosition).get(code):
+    if db.get(DisabledPosition, code):
         return False
     db.add(DisabledPosition(code=code, reason=reason))
     db.commit()
@@ -104,7 +104,7 @@ def enable_position(db, code: str) -> bool:
     """
     Remove a position from the disabled list. Returns True if removed, else False.
     """
-    row = db.query(DisabledPosition).get(code)
+    row = db.get(DisabledPosition, code)
     if not row:
         return False
     db.delete(row)
