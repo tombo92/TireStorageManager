@@ -19,7 +19,7 @@ from pathlib import Path
 # ========================================================
 # GLOBALS
 # ========================================================
-VERSION = "1.3.2"
+VERSION = "1.4.0"
 APP_NAME = os.environ.get("TSM_APP_NAME", "Reifenmanager")
 
 BASE_DIR = Path(__file__).resolve().parent
