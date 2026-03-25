@@ -5,6 +5,10 @@
 # @Link    : https://github.com/tombo92/TireStorageManager
 """
 App Configurations
+
+Paths can be overridden via environment variables so that the
+PyInstaller EXE + Windows Service can use a separate data directory:
+  TSM_DATA_DIR  →  base for db/ and backups/
 """
 # ========================================================
 # IMPORTS
@@ -13,17 +17,27 @@ import os
 from pathlib import Path
 
 # ========================================================
-# GLOABALS
+# GLOBALS
 # ========================================================
-VERSION = "1.1.5"
-APP_NAME = "Brandherm - Reifenmanager"
+VERSION = "1.3.0"
+APP_NAME = os.environ.get("TSM_APP_NAME", "Reifenmanager")
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = str(BASE_DIR / "db/wheel_storage.db")
-BACKUP_DIR = str(BASE_DIR / "backups")
+
+# Data directory: default = repo root, override with TSM_DATA_DIR
+DATA_DIR = Path(os.environ.get("TSM_DATA_DIR", str(BASE_DIR)))
+
+DB_DIR = DATA_DIR / "db"
+DB_PATH = str(DB_DIR / "wheel_storage.db")
+BACKUP_DIR = str(DATA_DIR / "backups")
+LOG_DIR = str(DATA_DIR / "logs")
+LOG_LEVEL = os.getenv("TSM_LOG_LEVEL", "INFO").upper()
+
+os.makedirs(str(DB_DIR), exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 
 # Set Production via ENV!
-SECRET_KEY = os.environ.get("WHEELS_SECRET_KEY", "change-me-please")
+SECRET_KEY = os.environ.get("TSM_SECRET_KEY", "change-me-please")
 HOST = "0.0.0.0"
 PORT = 5000
