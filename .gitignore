@@ -30,7 +30,8 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
+# Keep our .spec files — they ARE part of the build system
+# *.spec
 
 # Installer logs
 pip-log.txt
@@ -214,12 +215,13 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Project-specific (Brandherm – Reifenmanager)
-wheel_storage.db
-wheel_storage*.db
+# Project-specific
+db/
+logs/
 backups/
-# CSV snapshots may contain PII (customer names/plates)
-# Comment this out if you DO want to version CSVs.
 *.csv
+payload/TireStorageManager.exe
+build/
+dist/
 
 
