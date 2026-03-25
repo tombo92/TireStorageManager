@@ -270,6 +270,34 @@ class TestFavicon:
         resp.close()
 
 
+class TestSplashScreen:
+    def test_splash_present_on_index(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'id="splashScreen"' in html
+
+    def test_splash_has_tire_svg(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'class="splash-tire"' in html
+
+    def test_splash_has_progress_bar(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'splash-progress-fill' in html
+
+    def test_splash_shows_app_name(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'splash-title' in html
+
+    def test_splash_present_on_every_page(self, client):
+        """Splash is in base.html, so it should appear on all pages."""
+        for url in ["/wheelsets", "/positions", "/settings"]:
+            resp = client.get(url)
+            assert 'id="splashScreen"' in resp.data.decode(), f"Missing on {url}"
+
+
 # ── Helper ─────────────────────────────────────────────
 def _get_csrf(client):
     """Grab a CSRF token from a GET to the index."""

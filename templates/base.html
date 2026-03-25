@@ -81,6 +81,62 @@
         <div class="idle-hint">Maus bewegen oder Taste drücken zum Fortfahren …</div>
     </div>
 
+    <!-- Splash screen (first visit per session) -->
+    <div id="splashScreen">
+        <div class="splash-content">
+            <div class="splash-tire-wrapper">
+                <svg class="splash-tire" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Outer tire -->
+                    <circle cx="100" cy="100" r="90" fill="#1a1a2e" stroke="#2d3748" stroke-width="4"/>
+                    <!-- Tread pattern -->
+                    <g stroke="#3d4f6a" stroke-width="3" fill="none" opacity=".6">
+                        <line x1="100" y1="10" x2="100" y2="30"/>
+                        <line x1="163.6" y1="36.4" x2="149.3" y2="50.7"/>
+                        <line x1="190" y1="100" x2="170" y2="100"/>
+                        <line x1="163.6" y1="163.6" x2="149.3" y2="149.3"/>
+                        <line x1="100" y1="190" x2="100" y2="170"/>
+                        <line x1="36.4" y1="163.6" x2="50.7" y2="149.3"/>
+                        <line x1="10" y1="100" x2="30" y2="100"/>
+                        <line x1="36.4" y1="36.4" x2="50.7" y2="50.7"/>
+                    </g>
+                    <!-- Inner ring (sidewall) -->
+                    <circle cx="100" cy="100" r="60" fill="none" stroke="#4a5568" stroke-width="2.5"/>
+                    <!-- Rim -->
+                    <circle cx="100" cy="100" r="45" fill="#2d3748" stroke="#5a6b80" stroke-width="2"/>
+                    <!-- Rim spokes -->
+                    <g stroke="#6b7fa0" stroke-width="3.5" stroke-linecap="round" opacity=".7">
+                        <line x1="100" y1="60" x2="100" y2="82"/>
+                        <line x1="138" y1="80" x2="117" y2="91"/>
+                        <line x1="138" y1="120" x2="117" y2="109"/>
+                        <line x1="100" y1="140" x2="100" y2="118"/>
+                        <line x1="62" y1="120" x2="83" y2="109"/>
+                        <line x1="62" y1="80" x2="83" y2="91"/>
+                    </g>
+                    <!-- Hub cap -->
+                    <circle cx="100" cy="100" r="18" fill="#3d5068" stroke="#7a8fa8" stroke-width="1.5"/>
+                    <!-- Center bolt -->
+                    <circle cx="100" cy="100" r="6" fill="#8a9bb4"/>
+                    <!-- Lug nuts -->
+                    <circle cx="100" cy="87" r="3" fill="#8a9bb4"/>
+                    <circle cx="112" y1="94" cy="94" r="3" fill="#8a9bb4"/>
+                    <circle cx="108" cy="107" r="3" fill="#8a9bb4"/>
+                    <circle cx="92"  cy="107" r="3" fill="#8a9bb4"/>
+                    <circle cx="88"  cy="94"  r="3" fill="#8a9bb4"/>
+                </svg>
+                <!-- Road dust particles -->
+                <div class="splash-dust"></div>
+                <div class="splash-dust splash-dust-2"></div>
+                <div class="splash-dust splash-dust-3"></div>
+            </div>
+            <h1 class="splash-title">{{ APP_NAME }}</h1>
+            <p class="splash-subtitle">Datenbank wird geladen …</p>
+            <div class="splash-progress-bar">
+                <div class="splash-progress-fill"></div>
+            </div>
+            <p class="splash-version">v{{ APP_VERSION }}</p>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>

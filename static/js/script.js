@@ -1,5 +1,43 @@
 // TireStorage Manager UI helpers
 // - Position size zoom (A-/A+) with persistence (localStorage)
+// - Splash screen on first visit per session
+
+// =========================================================
+//  Splash / Loading Screen (once per browser session)
+// =========================================================
+(function () {
+  const KEY = 'tsm.splashShown';
+  const SPLASH_DURATION_MS = 2400;   // matches CSS progress bar animation
+
+  function initSplash() {
+    const splash = document.getElementById('splashScreen');
+    if (!splash) return;
+
+    // Already shown this session? Remove immediately.
+    try {
+      if (sessionStorage.getItem(KEY)) {
+        splash.remove();
+        return;
+      }
+    } catch (_) { /* private mode – show splash anyway */ }
+
+    // Mark as shown for this session
+    try { sessionStorage.setItem(KEY, '1'); } catch (_) {}
+
+    // After the progress bar fills, fade out and remove
+    setTimeout(function () {
+      splash.classList.add('splash-hidden');
+      setTimeout(function () { splash.remove(); }, 700);
+    }, SPLASH_DURATION_MS);
+  }
+
+  // Run immediately (script is at end of <body>)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSplash);
+  } else {
+    initSplash();
+  }
+})();
 
 (function () {
   const KEY = "tsm.posZoom";               // 'normal' | '125' | '150'
