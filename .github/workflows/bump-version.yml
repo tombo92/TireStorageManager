@@ -1,8 +1,8 @@
-name: Bump VERSION on develop
+name: Bump VERSION
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ develop, master ]
     paths:
         - '**.py'
         - 'templates/**'
@@ -15,7 +15,7 @@ permissions:
   contents: write   # required to push commits & tags
 
 concurrency:
-  group: bump-version-develop
+  group: bump-version-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -24,10 +24,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout develop
+      - name: Checkout branch
         uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: ${{ github.ref_name }}
           fetch-depth: 0   # we need full history to tag & push
 
       - name: Set up Python
@@ -35,10 +35,14 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Bump patch version in config.py
+      - name: Bump version in config.py
         id: bump
         run: |
-          NEW_VERSION=$(python tools/bump_version.py)
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            NEW_VERSION=$(python tools/bump_version.py --minor)
+          else
+            NEW_VERSION=$(python tools/bump_version.py)
+          fi
           echo "NEW_VERSION=$NEW_VERSION"
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
@@ -58,5 +62,26 @@ jobs:
           git tag -a "v${NEW_VERSION}" -m "Release ${NEW_VERSION}"
 
           # Push commit and tag
-          git push origin HEAD:develop
+          git push origin HEAD:${{ github.ref_name }}
           git push origin "v${NEW_VERSION}"
+
+      - name: Sync updated version back to develop (master bumps only)
+        if: github.ref_name == 'master'
+        run: |
+          git fetch origin develop
+          git checkout develop
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Cherry-pick the version bump commit onto develop
+          BUMP_SHA=$(git rev-parse origin/master)
+          git cherry-pick "$BUMP_SHA" || true
+
+          # If cherry-pick produced a conflict only in config.py, resolve by
+          # accepting the main version (already written by bump_version.py)
+          if ! git diff --quiet; then
+            git add config.py
+            git cherry-pick --continue --no-edit || true
+          fi
+
+          git push origin HEAD:develop
