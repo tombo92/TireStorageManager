@@ -1,4 +1,5 @@
 """Tests for tsm/positions.py — position validation, sorting, free/disabled."""
+import json
 import pytest
 from tsm.positions import (
     all_valid_positions,
@@ -11,12 +12,15 @@ from tsm.positions import (
     is_usable_position,
     first_free_position,
     free_positions,
+    get_effective_positions,
+    save_custom_positions,
+    reset_custom_positions,
     ALL_POSITIONS,
     SORTED_POSITIONS,
     RE_CONTAINER,
     RE_GARAGE,
 )
-from tsm.models import WheelSet, DisabledPosition
+from tsm.models import WheelSet, DisabledPosition, Settings
 
 
 # ── Validation ─────────────────────────────────────────
@@ -151,3 +155,90 @@ class TestFreePositions:
         fp = free_positions(db_session)
         assert first not in fp
         assert first_free_position(db_session) == SORTED_POSITIONS[1]
+
+
+# ── Custom positions ───────────────────────────────────
+class TestCustomPositions:
+    def test_effective_defaults_without_custom(self, db_session):
+        """Without custom JSON, effective == default SORTED."""
+        effective = get_effective_positions(db_session)
+        assert effective == list(SORTED_POSITIONS)
+
+    def test_save_and_get_custom(self, db_session):
+        custom = ["X1", "X2", "X3"]
+        # Need a Settings row first
+        s = Settings(
+            backup_interval_minutes=60, backup_copies=10,
+        )
+        db_session.add(s)
+        db_session.commit()
+        save_custom_positions(db_session, custom)
+        effective = get_effective_positions(db_session)
+        assert effective == custom
+
+    def test_save_creates_settings_if_missing(self, db_session):
+        """save_custom_positions creates a Settings row if none."""
+        save_custom_positions(db_session, ["A", "B"])
+        s = db_session.query(Settings).first()
+        assert s is not None
+        loaded = json.loads(s.custom_positions_json)
+        assert loaded == ["A", "B"]
+
+    def test_reset_clears_custom(self, db_session):
+        s = Settings(
+            backup_interval_minutes=60,
+            backup_copies=10,
+            custom_positions_json='["A","B"]',
+        )
+        db_session.add(s)
+        db_session.commit()
+        reset_custom_positions(db_session)
+        db_session.expire_all()
+        assert s.custom_positions_json is None
+        # Falls back to defaults
+        effective = get_effective_positions(db_session)
+        assert effective == list(SORTED_POSITIONS)
+
+    def test_free_positions_uses_custom(self, db_session):
+        custom = ["POS-A", "POS-B", "POS-C"]
+        s = Settings(
+            backup_interval_minutes=60, backup_copies=10,
+        )
+        db_session.add(s)
+        db_session.commit()
+        save_custom_positions(db_session, custom)
+        fp = free_positions(db_session)
+        assert fp == custom
+
+    def test_first_free_uses_custom(self, db_session):
+        s = Settings(
+            backup_interval_minutes=60, backup_copies=10,
+        )
+        db_session.add(s)
+        db_session.commit()
+        save_custom_positions(db_session, ["Z1", "Z2"])
+        assert first_free_position(db_session) == "Z1"
+
+    def test_invalid_json_falls_back(self, db_session):
+        """Corrupted JSON in DB gracefully falls back."""
+        s = Settings(
+            backup_interval_minutes=60,
+            backup_copies=10,
+            custom_positions_json="NOT VALID JSON",
+        )
+        db_session.add(s)
+        db_session.commit()
+        effective = get_effective_positions(db_session)
+        assert effective == list(SORTED_POSITIONS)
+
+    def test_empty_list_falls_back(self, db_session):
+        """An empty list in JSON falls back to defaults."""
+        s = Settings(
+            backup_interval_minutes=60,
+            backup_copies=10,
+            custom_positions_json="[]",
+        )
+        db_session.add(s)
+        db_session.commit()
+        effective = get_effective_positions(db_session)
+        assert effective == list(SORTED_POSITIONS)

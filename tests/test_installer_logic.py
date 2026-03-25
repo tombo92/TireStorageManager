@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Tests for installer_logic.py  –  install / uninstall steps.
+Tests for installer.installer_logic  –  install / uninstall steps.
 
 Every OS-level side effect (subprocess, shutil, filesystem) is mocked
 so the tests run on any platform (including Linux CI runners).
@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-import installer_logic as logic
+from installer import installer_logic as logic
 
 
 # ────────────────────────────────────────────────
