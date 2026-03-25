@@ -144,12 +144,116 @@ class TestSettings:
             "_csrf_token": token,
             "backup_interval_minutes": "30",
             "backup_copies": "5",
+            "dark_mode": "0",
         }, follow_redirects=True)
         assert resp.status_code == 200
         db_session.expire_all()
         s = db_session.query(Settings).first()
         assert s.backup_interval_minutes == 30
         assert s.backup_copies == 5
+
+    def test_post_toggle_dark_mode_on(
+        self, client, seed_settings, db_session
+    ):
+        token = _get_csrf(client)
+        resp = client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            "dark_mode": "1",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.dark_mode is True
+
+    def test_post_toggle_dark_mode_off(
+        self, client, seed_settings, db_session
+    ):
+        seed_settings.dark_mode = True
+        db_session.commit()
+        token = _get_csrf(client)
+        resp = client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            # dark_mode omitted → checkbox unchecked → False
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.dark_mode is False
+
+    def test_dark_mode_in_html(self, client, seed_settings, db_session):
+        """Dark mode injects data-bs-theme into every page."""
+        seed_settings.dark_mode = True
+        db_session.commit()
+        resp = client.get("/")
+        assert b'data-bs-theme="dark"' in resp.data
+
+    def test_light_mode_in_html(self, client, seed_settings, db_session):
+        seed_settings.dark_mode = False
+        db_session.commit()
+        resp = client.get("/")
+        assert b'data-bs-theme="light"' in resp.data
+
+
+class TestSettingsPositions:
+    def test_get(self, client, seed_settings):
+        resp = client.get("/settings/positions")
+        assert resp.status_code == 200
+
+    def test_save_custom(self, client, seed_settings, db_session):
+        token = _get_csrf(client)
+        resp = client.post("/settings/positions", data={
+            "_csrf_token": token,
+            "action": "save",
+            "positions_text": "POS-A\nPOS-B\nPOS-C",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.custom_positions_json is not None
+        import json
+        saved = json.loads(s.custom_positions_json)
+        assert saved == ["POS-A", "POS-B", "POS-C"]
+
+    def test_save_empty_rejected(self, client, seed_settings):
+        token = _get_csrf(client)
+        resp = client.post("/settings/positions", data={
+            "_csrf_token": token,
+            "action": "save",
+            "positions_text": "",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        # Should flash an error, positions_json stays None
+        assert b"Mindestens eine Position" in resp.data
+
+    def test_reset(self, client, seed_settings, db_session):
+        seed_settings.custom_positions_json = '["X","Y"]'
+        db_session.commit()
+        token = _get_csrf(client)
+        resp = client.post("/settings/positions", data={
+            "_csrf_token": token,
+            "action": "reset",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.custom_positions_json is None
+
+
+class TestImpressum:
+    def test_get(self, client):
+        resp = client.get("/impressum")
+        assert resp.status_code == 200
+        assert b"Tom Brandherm" in resp.data
+        assert b"github.com/tombo92" in resp.data
+
+    def test_has_easter_egg_container(self, client):
+        resp = client.get("/impressum")
+        assert b"easterEgg" in resp.data
+        assert b"Konami" in resp.data or b"SEQ" in resp.data
 
 
 class TestBackups:

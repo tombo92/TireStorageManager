@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-bs-theme="{{ 'dark' if dark_mode else 'light' }}">
 <head>
     <meta charset="utf-8">
     <title>{{ APP_NAME }} – v{{ APP_VERSION }}</title>
@@ -10,7 +10,7 @@
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
 </head>
-<body>
+<body class="{{ 'bg-dark text-light' if dark_mode else '' }}">
     <nav class="navbar navbar-expand-lg bg-dark navbar-dark">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('index') }}">
@@ -36,6 +36,8 @@
                             href="{{ url_for('backups') }}"><i class="bi bi-hdd-network me-1"></i> Backups</a></li>
                     <li class="nav-item"><a class="nav-link {% if active=='settings' %}active{% endif %}"
                             href="{{ url_for('settings') }}"><i class="bi bi-gear me-1"></i> Einstellungen</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active=='impressum' %}active{% endif %}"
+                            href="{{ url_for('impressum') }}"><i class="bi bi-info-circle me-1"></i> Impressum</a></li>
                 </ul>
                 <form class="d-flex" role="search" method="get" action="{{ url_for('list_wheelsets') }}">
                     <input class="form-control me-2" type="search" placeholder="Suche (Name, Kennzeichen, Fahrzeug)"

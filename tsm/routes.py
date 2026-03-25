@@ -9,11 +9,12 @@ All routes attached to app
 # ========================================================
 # IMPORTS
 # ========================================================
+import json
 import os
 from datetime import datetime
 from flask import (
     request, redirect, url_for, flash, render_template, abort,
-    send_from_directory
+    send_from_directory, jsonify
 )
 from sqlalchemy.exc import IntegrityError
 
@@ -23,9 +24,11 @@ from sqlalchemy.exc import IntegrityError
 from tsm.db import SessionLocal
 from tsm.models import WheelSet, Settings, AuditLog
 from tsm.positions import (
-    is_valid_position, SORTED_POSITIONS, get_occupied_positions,
+    is_valid_position, get_occupied_positions,
     first_free_position, free_positions, get_disabled_positions,
-    is_usable_position, position_sort_key
+    is_usable_position, position_sort_key, get_effective_positions,
+    save_custom_positions, reset_custom_positions,
+    SORTED_POSITIONS,
 )
 from tsm.utils import validate_csrf
 # for route use (CSV)
@@ -54,6 +57,19 @@ def log_action(db, action, wheelset_id=None, details=None):
 # Routes
 # --------------------------------------------------------
 def register_routes(app):
+    # ---- dark-mode context processor (shared everywhere) ----
+    @app.context_processor
+    def inject_dark_mode():
+        db = SessionLocal()
+        try:
+            s = db.query(Settings).first()
+            dark = s.dark_mode if s else False
+        except Exception:
+            dark = False
+        finally:
+            SessionLocal.remove()
+        return {"dark_mode": dark}
+
     @app.route("/")
     def index():
         db = SessionLocal()
@@ -94,7 +110,8 @@ def register_routes(app):
                 if request.method == "GET" else None
             occupied = get_occupied_positions(db)
             disabled = get_disabled_positions(db)
-            pos_choices = [p for p in SORTED_POSITIONS
+            effective = get_effective_positions(db)
+            pos_choices = [p for p in effective
                            if p not in occupied and p not in disabled]
 
             if request.method == "POST":
@@ -164,11 +181,16 @@ def register_routes(app):
             occupied = get_occupied_positions(db)
             occupied.discard(w.storage_position)
             disabled = get_disabled_positions(db)
+            effective = get_effective_positions(db)
             # Current position may be disabled later;
             # keep it selectable for editing,
             # but disallow changing to other disabled ones.
-            pos_choices = [p for p in SORTED_POSITIONS if
-                           (p not in occupied) and (p not in disabled or p == w.storage_position)]
+            pos_choices = [
+                p for p in effective if
+                (p not in occupied)
+                and (p not in disabled
+                     or p == w.storage_position)
+            ]
             if request.method == "POST":
                 validate_csrf()
                 customer_name = request.form.get("customer_name", "").strip()
@@ -286,17 +308,89 @@ def register_routes(app):
                 try:
                     interval = int(request.form.get(
                         "backup_interval_minutes", "60"))
-                    copies = int(request.form.get("backup_copies", "10"))
+                    copies = int(
+                        request.form.get("backup_copies", "10"))
                     s.backup_interval_minutes = max(1, interval)
                     s.backup_copies = max(1, copies)
+                    s.dark_mode = (
+                        request.form.get("dark_mode") == "1"
+                    )
                     db.commit()
-                    flash("Einstellungen gespeichert.", "success")
+                    flash(
+                        "Einstellungen gespeichert.",
+                        "success",
+                    )
                 except Exception:
                     db.rollback()
-                    flash("Fehler beim Speichern der Einstellungen.", "error")
-            return render_template("settings.html", s=s, active="settings")
+                    flash(
+                        "Fehler beim Speichern.",
+                        "error",
+                    )
+            return render_template(
+                "settings.html", s=s, active="settings")
         finally:
             SessionLocal.remove()
+
+    # ---- Position editor routes ----
+    @app.route(
+        "/settings/positions", methods=["GET", "POST"]
+    )
+    def settings_positions():
+        db = SessionLocal()
+        try:
+            effective = get_effective_positions(db)
+            defaults = list(SORTED_POSITIONS)
+            is_custom = effective != defaults
+            if request.method == "POST":
+                validate_csrf()
+                action = request.form.get("action")
+                if action == "reset":
+                    reset_custom_positions(db)
+                    flash(
+                        "Positionen auf Standard zurückgesetzt.",
+                        "success",
+                    )
+                    return redirect(
+                        url_for("settings_positions"))
+                if action == "save":
+                    raw = request.form.get(
+                        "positions_text", "")
+                    lines = [
+                        ln.strip()
+                        for ln in raw.splitlines()
+                        if ln.strip()
+                    ]
+                    if not lines:
+                        flash(
+                            "Mindestens eine Position "
+                            "erforderlich.",
+                            "error",
+                        )
+                        return redirect(
+                            url_for("settings_positions"))
+                    save_custom_positions(db, lines)
+                    flash(
+                        f"{len(lines)} Positionen "
+                        "gespeichert.",
+                        "success",
+                    )
+                    return redirect(
+                        url_for("settings_positions"))
+            return render_template(
+                "settings_positions.html",
+                positions=effective,
+                is_custom=is_custom,
+                active="settings",
+            )
+        finally:
+            SessionLocal.remove()
+
+    # ---- Impressum ----
+    @app.route("/impressum")
+    def impressum():
+        return render_template(
+            "impressum.html", active="impressum"
+        )
 
     @app.route("/backups")
     def backups():

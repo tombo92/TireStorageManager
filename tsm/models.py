@@ -11,7 +11,7 @@ Models
 # ========================================================
 from datetime import datetime, timezone
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import (Column, Integer, String, DateTime, Text,
+from sqlalchemy import (Column, Integer, String, DateTime, Text, Boolean,
                         UniqueConstraint)
 
 
@@ -58,6 +58,8 @@ class Settings(Base):
     id = Column(Integer, primary_key=True)
     backup_interval_minutes = Column(Integer, nullable=False, default=60)
     backup_copies = Column(Integer, nullable=False, default=10)
+    dark_mode = Column(Boolean, nullable=False, default=False)
+    custom_positions_json = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc),
                         nullable=False)

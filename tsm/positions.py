@@ -9,8 +9,9 @@ Postions Logic
 # ========================================================
 # IMPORTS
 # ========================================================
+import json
 import re
-from tsm.models import WheelSet, DisabledPosition
+from tsm.models import WheelSet, DisabledPosition, Settings
 
 
 # ========================================================
@@ -121,7 +122,8 @@ def is_usable_position(db, code: str) -> bool:
 def first_free_position(db):
     occupied = get_occupied_positions(db)
     disabled = get_disabled_positions(db)
-    for code in SORTED_POSITIONS:
+    effective = get_effective_positions(db)
+    for code in effective:
         if code not in occupied and code not in disabled:
             return code
     return None
@@ -130,7 +132,11 @@ def first_free_position(db):
 def free_positions(db):
     occupied = get_occupied_positions(db)
     disabled = get_disabled_positions(db)
-    return [code for code in SORTED_POSITIONS if code not in occupied and code not in disabled]
+    effective = get_effective_positions(db)
+    return [
+        code for code in effective
+        if code not in occupied and code not in disabled
+    ]
 
 
 # ========================================================
@@ -138,3 +144,46 @@ def free_positions(db):
 # ========================================================
 ALL_POSITIONS = all_valid_positions()
 SORTED_POSITIONS = sorted(ALL_POSITIONS, key=position_sort_key)
+
+
+# ========================================================
+# CUSTOM POSITIONS (stored in Settings.custom_positions_json)
+# ========================================================
+def get_effective_positions(db) -> list[str]:
+    """Return the active position list.
+
+    If custom_positions_json is set in the DB, use that list.
+    Otherwise fall back to the default generated SORTED_POSITIONS.
+    """
+    s = db.query(Settings).first()
+    if s and s.custom_positions_json:
+        try:
+            custom = json.loads(s.custom_positions_json)
+            if isinstance(custom, list) and custom:
+                return custom
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return list(SORTED_POSITIONS)
+
+
+def save_custom_positions(db, positions: list[str]) -> None:
+    """Persist a custom position list to the DB."""
+    s = db.query(Settings).first()
+    if s is None:
+        s = Settings(
+            backup_interval_minutes=60,
+            backup_copies=10,
+        )
+        db.add(s)
+    s.custom_positions_json = json.dumps(
+        positions, ensure_ascii=False
+    )
+    db.commit()
+
+
+def reset_custom_positions(db) -> None:
+    """Clear custom positions, reverting to the defaults."""
+    s = db.query(Settings).first()
+    if s:
+        s.custom_positions_json = None
+        db.commit()

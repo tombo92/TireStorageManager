@@ -1,25 +1,67 @@
 {% extends 'base.html' %}
 {% block content %}
 <h3><i class="bi bi-gear"></i> Einstellungen</h3>
-<form method="post" class="row g-3">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <div class="col-md-4">
-        <label class="form-label">Backup-Intervall (Minuten)</label>
-        <input type="number" min="1" class="form-control" name="backup_interval_minutes"
-            value="{{ s.backup_interval_minutes }}">
+
+<!-- Dark Mode -->
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-moon-stars"></i> Erscheinungsbild</h5>
+        <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
+            <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
+            <div class="form-check form-switch fs-5">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="darkModeSwitch" name="dark_mode" value="1"
+                       {{ 'checked' if s.dark_mode else '' }}
+                       onchange="this.form.submit()">
+                <label class="form-check-label" for="darkModeSwitch">
+                    <i class="bi bi-moon-fill me-1"></i> Dark Mode
+                </label>
+            </div>
+        </form>
     </div>
-    <div class="col-md-4">
-        <label class="form-label">Anzahl Sicherungskopien</label>
-        <input type="number" min="1" class="form-control" name="backup_copies" value="{{ s.backup_copies }}">
+</div>
+
+<!-- Backup settings -->
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-hdd-stack"></i> Backup</h5>
+        <form method="post" class="row g-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <div class="col-md-4">
+                <label class="form-label">Backup-Intervall (Minuten)</label>
+                <input type="number" min="1" class="form-control" name="backup_interval_minutes"
+                    value="{{ s.backup_interval_minutes }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Anzahl Sicherungskopien</label>
+                <input type="number" min="1" class="form-control" name="backup_copies" value="{{ s.backup_copies }}">
+            </div>
+            <div class="col-12 d-flex gap-2">
+                <button class="btn btn-primary"><i class="bi bi-save2"></i> Speichern</button>
+            </div>
+        </form>
+        <form method="post" action="{{ url_for('run_backup') }}" class="mt-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-secondary">
+                <i class="bi bi-hdd-stack"></i> Backup jetzt erstellen
+            </button>
+        </form>
     </div>
-    <div class="col-12 d-flex gap-2">
-        <button class="btn btn-primary"><i class="bi bi-save2"></i> Speichern</button>
+</div>
+
+<!-- Position management -->
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-grid-3x3-gap"></i> Lagerplatz-Positionen</h5>
+        <p class="text-body-secondary">
+            Positionen komplett anpassen — eigene Positionsnamen vergeben, Reihenfolge festlegen, oder auf den Standard zurücksetzen.
+        </p>
+        <a class="btn btn-outline-primary" href="{{ url_for('settings_positions') }}">
+            <i class="bi bi-pencil-square"></i> Positionen verwalten
+        </a>
     </div>
-</form>
-<form method="post" action="{{ url_for('run_backup') }}" class="mt-2">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn btn-outline-secondary">
-        <i class="bi bi-hdd-stack"></i> Backup jetzt erstellen
-    </button>
-</form>
+</div>
 {% endblock %}
