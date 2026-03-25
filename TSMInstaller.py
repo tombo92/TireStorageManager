@@ -148,6 +148,7 @@ class InstallerApp(tk.Tk):
         self.var_port = tk.StringVar(value=str(DEFAULT_PORT))
         self.var_display_name = tk.StringVar(value=DEFAULT_DISPLAY_NAME)
         self.var_secret_key = tk.StringVar(value="")
+        self.var_shortcut = tk.BooleanVar(value=True)
 
         self.nssm: Optional[Path] = None
         self.app_exe: Optional[Path] = None
@@ -249,6 +250,18 @@ class InstallerApp(tk.Tk):
             bg=BG_CARD, fg="#94a3b8", font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(4, 0))
 
+        # --- Desktop shortcut ---
+        tk.Checkbutton(
+            body,
+            text="Desktop-Verknüpfung erstellen"
+                 " (öffnet die Web-Oberfläche im Browser)",
+            variable=self.var_shortcut,
+            bg=BG_CARD, fg=FG_TEXT,
+            selectcolor=BG_CARD,
+            activebackground=BG_CARD,
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(10, 0))
+
         # --- Buttons ---
         bar = tk.Frame(self, bg=BG_DARK)
         bar.pack(fill="x", padx=20, pady=(0, 16))
@@ -319,11 +332,12 @@ class InstallerApp(tk.Tk):
 
         display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
         secret_key = self.var_secret_key.get().strip()
+        shortcut = self.var_shortcut.get()
 
         self.btn_install.configure(state="disabled")
         self.btn_uninstall.configure(state="disabled")
         ProgressWindow(self, install_dir, data_dir, port,
-                       display_name, secret_key)
+                       display_name, secret_key, shortcut)
 
     # --------------------------------------------------------
     # Uninstall kick-off
@@ -382,7 +396,8 @@ class ProgressWindow(tk.Toplevel):
 
     def __init__(self, parent: InstallerApp,
                  install_dir: Path, data_dir: Path, port: int,
-                 display_name: str, secret_key: str):
+                 display_name: str, secret_key: str,
+                 shortcut: bool = True):
         super().__init__(parent)
         self.parent_app = parent
         self.install_dir = install_dir
@@ -390,6 +405,7 @@ class ProgressWindow(tk.Toplevel):
         self.port = port
         self.display_name = display_name
         self.secret_key = secret_key
+        self.shortcut = shortcut
 
         self.title("Installation läuft …")
         self.geometry("660x400")
@@ -510,6 +526,10 @@ class ProgressWindow(tk.Toplevel):
             ("Dienst starten",                self._step_start),
             ("Tägliches Update einrichten",   self._step_update_task),
         ]
+        if self.shortcut:
+            steps.append(
+                ("Desktop-Verknüpfung erstellen", self._step_shortcut)
+            )
         total = len(steps)
         try:
             for i, (title, fn) in enumerate(steps):
@@ -574,6 +594,11 @@ class ProgressWindow(tk.Toplevel):
 
     def _step_update_task(self):
         logic.create_update_task(log=self._log)
+
+    def _step_shortcut(self):
+        ip = get_primary_ipv4() or "localhost"
+        url = f"http://{ip}:{self.port}/"
+        logic.create_desktop_shortcut(url, self.display_name, log=self._log)
 
 
 # ========================================================
@@ -696,6 +721,7 @@ class UninstallProgressWindow(tk.Toplevel):
             ("Geplanten Task entfernen",    self._step_remove_task),
             ("Firewall-Regel entfernen",    self._step_remove_firewall),
             ("Programmdateien entfernen",   self._step_remove_install),
+            ("Desktop-Verknüpfung entfernen", self._step_remove_shortcut),
         ]
         if not self.keep_data:
             steps.append(
@@ -747,6 +773,9 @@ class UninstallProgressWindow(tk.Toplevel):
 
     def _step_remove_data(self):
         logic.remove_data_dir(self.data_dir, log=self._log)
+
+    def _step_remove_shortcut(self):
+        logic.remove_desktop_shortcut(self.display_name, log=self._log)
 
 
 # ========================================================

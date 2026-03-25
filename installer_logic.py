@@ -9,6 +9,7 @@ here so they can be mocked in unit tests.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -223,6 +224,38 @@ def create_update_task(
             log(f"   ✓ Täglicher Neustart-Task '{task_name}' um 03:00 erstellt.")
         else:
             log(f"   ℹ Task-Erstellung: {result.stderr.strip()}")
+
+
+def create_desktop_shortcut(
+    url: str,
+    display_name: str = "Reifenmanager",
+    log: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Step 9 – create a .url Internet Shortcut on the All Users Desktop."""
+    desktop = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"
+    shortcut = desktop / f"{display_name}.url"
+    shortcut.write_text(
+        f"[InternetShortcut]\nURL={url}\n", encoding="utf-8"
+    )
+    if log:
+        log(f"   ✓ Desktop-Verknüpfung erstellt: {shortcut}")
+
+
+def remove_desktop_shortcut(
+    display_name: str = "Reifenmanager",
+    log: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Uninstall – remove the .url shortcut from the All Users Desktop."""
+    desktop = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"
+    for candidate in [display_name, "Reifenmanager", APP_NAME]:
+        shortcut = desktop / f"{candidate}.url"
+        if shortcut.exists():
+            shortcut.unlink()
+            if log:
+                log(f"   ✓ Desktop-Verknüpfung entfernt: {shortcut.name}")
+            return
+    if log:
+        log("   ℹ Keine Desktop-Verknüpfung gefunden.")
 
 
 # ========================================================

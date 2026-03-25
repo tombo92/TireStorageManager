@@ -450,3 +450,71 @@ class TestFullInstallSequence:
         assert not install.exists()
         assert data.exists()
         assert (data / "db" / "wheel_storage.db").read_bytes() == b"KEEP"
+
+
+# ────────────────────────────────────────────────
+# create_desktop_shortcut / remove_desktop_shortcut
+# ────────────────────────────────────────────────
+class TestDesktopShortcut:
+    def test_creates_url_file(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("PUBLIC", str(tmp_path))
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+
+        logic.create_desktop_shortcut(
+            "http://192.168.1.10:5000/",
+            display_name="Mein Reifen",
+        )
+
+        shortcut = desktop / "Mein Reifen.url"
+        assert shortcut.exists()
+        content = shortcut.read_text(encoding="utf-8")
+        assert "[InternetShortcut]" in content
+        assert "URL=http://192.168.1.10:5000/" in content
+
+    def test_creates_url_file_default_name(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("PUBLIC", str(tmp_path))
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+
+        logic.create_desktop_shortcut("http://localhost:5000/")
+
+        shortcut = desktop / "Reifenmanager.url"
+        assert shortcut.exists()
+
+    def test_log_called(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("PUBLIC", str(tmp_path))
+        (tmp_path / "Desktop").mkdir()
+        msgs: list[str] = []
+        logic.create_desktop_shortcut(
+            "http://localhost:5000/", log=msgs.append
+        )
+        assert any("Desktop-Verknüpfung" in m for m in msgs)
+
+    def test_removes_url_file(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("PUBLIC", str(tmp_path))
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+        shortcut = desktop / "Mein Tool.url"
+        shortcut.write_text("[InternetShortcut]\nURL=http://x/\n")
+
+        logic.remove_desktop_shortcut("Mein Tool")
+
+        assert not shortcut.exists()
+
+    def test_remove_graceful_if_missing(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("PUBLIC", str(tmp_path))
+        (tmp_path / "Desktop").mkdir()
+        msgs: list[str] = []
+        # Should not raise
+        logic.remove_desktop_shortcut("NonExistent", log=msgs.append)
+        assert any("Keine" in m or "nicht gefunden" in m for m in msgs)
+
+    def test_remove_log_on_success(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("PUBLIC", str(tmp_path))
+        desktop = tmp_path / "Desktop"
+        desktop.mkdir()
+        (desktop / "TestApp.url").write_text("[InternetShortcut]\nURL=x\n")
+        msgs: list[str] = []
+        logic.remove_desktop_shortcut("TestApp", log=msgs.append)
+        assert any("entfernt" in m for m in msgs)
