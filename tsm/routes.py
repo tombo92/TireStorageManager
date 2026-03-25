@@ -10,8 +10,9 @@ All routes attached to app
 # IMPORTS
 # ========================================================
 import os
+from datetime import datetime
 from flask import (
-    request, redirect, url_for, flash, render_template, abort, Response,
+    request, redirect, url_for, flash, render_template, abort,
     send_from_directory
 )
 from sqlalchemy.exc import IntegrityError
@@ -64,7 +65,7 @@ def register_routes(app):
                                    free_positions=free_pos,
                                    free_count=len(free_pos), active="home")
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/wheelsets")
     def list_wheelsets():
@@ -83,7 +84,7 @@ def register_routes(app):
             return render_template("wheelsets_list.html", items=items,
                                    active="wheelsets")
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/wheelsets/new", methods=["GET", "POST"])
     def create_wheelset():
@@ -141,7 +142,7 @@ def register_routes(app):
                 log_action(db,
                            "create",
                            w.id,
-                           f"Angelegt @ {w.storage_position} für" +
+                           f"Angelegt @ {w.storage_position} für " +
                            f"{w.customer_name} [{w.license_plate}]")
                 flash("Radsatz wurde angelegt.", "success")
                 return redirect(url_for("list_wheelsets"))
@@ -150,13 +151,13 @@ def register_routes(app):
                                    positions=pos_choices, suggested=suggested,
                                    active="wheelsets")
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/wheelsets/<int:wid>/edit", methods=["GET", "POST"])
     def edit_wheelset(wid):
         db = SessionLocal()
         try:
-            w = db.query(WheelSet).get(wid)
+            w = db.get(WheelSet, wid)
             if not w:
                 abort(404, description="Radsatz nicht gefunden.")
 
@@ -222,26 +223,26 @@ def register_routes(app):
                                    positions=pos_choices, suggested=None,
                                    active="wheelsets")
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/wheelsets/<int:wid>/delete", methods=["GET"])
     def delete_wheelset_confirm(wid):
         db = SessionLocal()
         try:
-            w = db.query(WheelSet).get(wid)
+            w = db.get(WheelSet, wid)
             if not w:
                 abort(404, description="Radsatz nicht gefunden.")
             return render_template("delete_confirm.html", w=w,
                                    active="wheelsets")
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/wheelsets/<int:wid>/delete", methods=["POST"])
     def delete_wheelset(wid):
         validate_csrf()
         db = SessionLocal()
         try:
-            w = db.query(WheelSet).get(wid)
+            w = db.get(WheelSet, wid)
             if not w:
                 abort(404, description="Radsatz nicht gefunden.")
             confirm_plate = (
@@ -258,7 +259,7 @@ def register_routes(app):
             flash("Radsatz wurde sicher gelöscht.", "success")
             return redirect(url_for("list_wheelsets"))
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/positions")
     def positions():
@@ -273,7 +274,7 @@ def register_routes(app):
                                    disabled_positions=disabled,
                                    active="positions")
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/settings", methods=["GET", "POST"])
     def settings():
@@ -295,7 +296,7 @@ def register_routes(app):
                     flash("Fehler beim Speichern der Einstellungen.", "error")
             return render_template("settings.html", s=s, active="settings")
         finally:
-            db.close()
+            SessionLocal.remove()
 
     @app.route("/backups")
     def backups():
@@ -306,7 +307,7 @@ def register_routes(app):
                 p = os.path.join(BACKUP_DIR, f)
                 try:
                     size_kb = max(1, os.path.getsize(p)//1024)
-                    mtime = __import__("datetime").datetime.fromtimestamp(
+                    mtime = datetime.fromtimestamp(
                         os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M:%S")
                     ftype = "csv" if f.endswith(".csv") else "db"
                     files.append(
@@ -326,8 +327,9 @@ def register_routes(app):
             abort(403)
         return send_from_directory(BACKUP_DIR, filename, as_attachment=True)
 
-    @app.route("/backups/export_csv")
+    @app.route("/backups/export_csv", methods=["POST"])
     def export_csv_now():
+        validate_csrf()
         try:
             export_csv_snapshot()
             flash("CSV-Export wurde erstellt.", "success")
@@ -337,8 +339,9 @@ def register_routes(app):
 
     # We won't start BackupManager here to avoid duplicate threads.
     # The run.py will handle it once.
-    @app.route("/backups/run")
+    @app.route("/backups/run", methods=["POST"])
     def run_backup():
+        validate_csrf()
         # local import to avoid early start
         from tsm.backup_manager import BackupManager
         from tsm.db import engine
@@ -352,4 +355,7 @@ def register_routes(app):
 
     @app.route("/favicon.ico")
     def favicon():
-        return Response(status=204)
+        return send_from_directory(
+            app.static_folder, "favicon.ico",
+            mimetype="image/vnd.microsoft.icon"
+        )

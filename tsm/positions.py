@@ -14,7 +14,7 @@ from tsm.models import WheelSet, DisabledPosition
 
 
 # ========================================================
-# GLOABALS
+# GLOBALS
 # ========================================================
 CONTAINER_NUMBERS = [1, 2, 3, 4]
 CONTAINER_SIDES = ["R", "L"]
