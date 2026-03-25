@@ -33,6 +33,10 @@ from tsm.positions import (
 from tsm.utils import validate_csrf
 # for route use (CSV)
 from tsm.backup_manager import export_csv_snapshot
+from tsm.self_update import (
+    get_update_info, invalidate_update_cache,
+    check_for_update, _is_frozen,
+)
 from config import BACKUP_DIR
 
 
@@ -321,6 +325,9 @@ def register_routes(app):
                     s.dark_mode = (
                         request.form.get("dark_mode") == "1"
                     )
+                    s.auto_update = (
+                        request.form.get("auto_update") == "1"
+                    )
                     db.commit()
                     _refresh_dark_mode()
                     flash(
@@ -467,3 +474,49 @@ def register_routes(app):
             app.static_folder, "favicon.ico",
             mimetype="image/vnd.microsoft.icon"
         )
+
+    # ---- Update management API ----
+    @app.route("/api/update-check")
+    def api_update_check():
+        """AJAX endpoint: return update availability as JSON."""
+        info = get_update_info()
+        return jsonify(info)
+
+    @app.route("/api/update-check", methods=["POST"])
+    def api_update_check_refresh():
+        """Force-refresh the cached update info."""
+        validate_csrf()
+        invalidate_update_cache()
+        info = get_update_info()
+        return jsonify(info)
+
+    @app.route("/settings/update-now", methods=["POST"])
+    def update_now():
+        """Trigger an immediate update (frozen EXE only)."""
+        validate_csrf()
+        if not _is_frozen():
+            flash(
+                "Update kann nur in der installierten "
+                "Version (EXE) durchgeführt werden.",
+                "info",
+            )
+            return redirect(url_for("settings"))
+
+        try:
+            updated = check_for_update()
+            if updated:
+                flash(
+                    "Update wurde installiert — der "
+                    "Dienst wird neu gestartet.",
+                    "success",
+                )
+            else:
+                flash(
+                    "Kein Update verfügbar oder "
+                    "Update fehlgeschlagen.",
+                    "info",
+                )
+        except Exception as e:
+            flash(f"Update fehlgeschlagen: {e}", "error")
+
+        return redirect(url_for("settings"))

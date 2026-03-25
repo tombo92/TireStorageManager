@@ -225,11 +225,26 @@ def main():
     # ── Self-update check (only for frozen EXE, unless --no-update) ──
     if not args.no_update and not args.dev:
         try:
-            updated = check_for_update()
-            if updated:
-                log.info("Update applied — service will restart. "
-                         "Exiting current process.")
-                sys.exit(0)
+            # Respect the auto_update DB setting
+            from tsm.db import SessionLocal
+            from tsm.models import Settings
+            db = SessionLocal()
+            try:
+                s = db.query(Settings).first()
+                auto = s.auto_update if s else True
+            finally:
+                SessionLocal.remove()
+
+            if auto:
+                updated = check_for_update()
+                if updated:
+                    log.info(
+                        "Update applied — service will restart. "
+                        "Exiting current process.")
+                    sys.exit(0)
+            else:
+                log.info("Auto-update disabled in settings — "
+                         "skipping startup update check.")
         except Exception as e:
             log.warning("Self-update check failed: %s", e,
                         exc_info=True)

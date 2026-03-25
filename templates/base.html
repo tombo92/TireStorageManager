@@ -67,6 +67,20 @@
         {% endif %}
         {% endwith %}
 
+        <!-- Update notification banner (populated via AJAX) -->
+        <div id="updateBanner" class="alert alert-info alert-dismissible fade d-none" role="alert">
+            <i class="bi bi-cloud-download me-1"></i>
+            <strong>Neue Version <span id="bannerRemoteVersion"></span> verfügbar!</strong>
+            <span id="bannerAutoMsg"></span>
+            <a id="bannerReleaseLink" href="#" target="_blank" class="alert-link ms-2 d-none">
+                <i class="bi bi-box-arrow-up-right"></i> Release-Seite
+            </a>
+            <a href="{{ url_for('settings') }}#update-card" class="alert-link ms-2">
+                <i class="bi bi-gear"></i> Einstellungen
+            </a>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+
         {% block content %}{% endblock %}
     </main>
 

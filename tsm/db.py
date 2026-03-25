@@ -70,6 +70,11 @@ def _migrate():
                 "ALTER TABLE settings "
                 "ADD COLUMN custom_positions_json TEXT"
             ))
+        if "auto_update" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN auto_update BOOLEAN NOT NULL DEFAULT 1"
+            ))
 
 
 _migrate()
