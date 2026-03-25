@@ -41,7 +41,6 @@ class TestBackupManager:
         with tempfile.TemporaryDirectory() as tmpdir:
             import tsm.backup_manager as bm_mod
             monkeypatch.setattr(bm_mod, "SessionLocal", db_session)
-            monkeypatch.setattr(bm_mod, "engine", db_engine)
 
             mgr = BackupManager(db_engine, tmpdir)
             mgr.perform_backup()
@@ -58,7 +57,6 @@ class TestBackupManager:
         with tempfile.TemporaryDirectory() as tmpdir:
             import tsm.backup_manager as bm_mod
             monkeypatch.setattr(bm_mod, "SessionLocal", db_session)
-            monkeypatch.setattr(bm_mod, "engine", db_engine)
 
             # Set retention to 2
             seed_settings.backup_copies = 2

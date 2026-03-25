@@ -69,10 +69,23 @@ def app(db_engine, db_session, monkeypatch):
 
     monkeypatch.setattr(db_mod, "engine", db_engine)
     monkeypatch.setattr(db_mod, "SessionLocal", db_session)
-    # Also patch modules that imported SessionLocal / engine directly
+    # Also patch modules that imported SessionLocal directly
     monkeypatch.setattr(routes_mod, "SessionLocal", db_session)
     monkeypatch.setattr(bm_mod, "SessionLocal", db_session)
-    monkeypatch.setattr(bm_mod, "engine", db_engine)
+
+    # Patch self_update so tests never hit the network
+    import tsm.self_update as su_mod
+    monkeypatch.setattr(su_mod, "_update_info_cache", None)
+    monkeypatch.setattr(su_mod, "_update_info_cache_ts", 0.0)
+    # Also patch the references imported into routes
+    import tsm.routes as routes_mod2
+    monkeypatch.setattr(routes_mod2, "get_update_info", su_mod.get_update_info)
+    monkeypatch.setattr(
+        routes_mod2, "invalidate_update_cache",
+        su_mod.invalidate_update_cache)
+    monkeypatch.setattr(
+        routes_mod2, "check_for_update", su_mod.check_for_update)
+    monkeypatch.setattr(routes_mod2, "_is_frozen", su_mod._is_frozen)
 
     from tsm.app import create_app
     flask_app = create_app()

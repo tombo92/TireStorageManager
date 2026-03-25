@@ -66,7 +66,7 @@ jobs:
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add config.py
+          git add config.py CHANGELOG.md
           git commit -m "chore(version): bump to ${{ steps.bump.outputs.NEW_VERSION }} [skip ci]"
           git tag -a "v${{ steps.bump.outputs.NEW_VERSION }}" \
                     -m "Release ${{ steps.bump.outputs.NEW_VERSION }}"
@@ -164,7 +164,7 @@ jobs:
           echo "TSM_PRERELEASE=1" >> $env:GITHUB_ENV
 
       - name: Build TSM-Installer.exe
-        run: pyinstaller TSM-Installer.spec --noconfirm
+        run: pyinstaller installer/TSM-Installer.spec --noconfirm
 
       - name: Smoke-test TireStorageManager.exe
         shell: pwsh
@@ -253,6 +253,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Extract changelog notes
+        id: changelog
+        run: |
+          NOTES=$(python tools/extract_changelog.py "${{ needs.build.outputs.app_version }}")
+          if [ -z "$NOTES" ]; then
+            NOTES="Siehe [Commit-Historie](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }})."
+          fi
+          # Write multi-line string to GITHUB_OUTPUT
+          {
+            echo "NOTES<<CHANGELOG_EOF"
+            echo "$NOTES"
+            echo "CHANGELOG_EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Download installer artifact
         uses: actions/download-artifact@v4
@@ -290,16 +311,14 @@ jobs:
             ${{ steps.meta.outputs.body_prefix }}
             ## TireStorageManager v${{ needs.build.outputs.app_version }}
 
-            **Automatisch erstellt durch CI-Pipeline.**
+            ${{ steps.changelog.outputs.NOTES }}
 
+            ---
             ### Downloads
             | Datei | Beschreibung |
             |-------|-------------|
             | `TSM-Installer.exe` | Installer/Deinstaller mit GUI |
             | `TireStorageManager.exe` | Standalone-Anwendung (ohne Installer) |
-
-            ### Änderungen
-            Siehe [Commit-Historie](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}).
           files: |
             release-assets/TSM-Installer.exe
             release-assets/TireStorageManager.exe

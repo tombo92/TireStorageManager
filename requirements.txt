@@ -2,4 +2,4 @@
 Flask>=2.3,<3.0
 SQLAlchemy>=2.0,<3.0
 waitress==3.0.2
-pyinstaller
+pyinstaller>=6.0,<7.0
