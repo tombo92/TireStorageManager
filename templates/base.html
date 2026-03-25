@@ -16,6 +16,11 @@
             <a class="navbar-brand" href="{{ url_for('index') }}">
                 <i class="bi bi-speedometer2 me-1"></i> {{ APP_NAME }}
                 <span class="badge text-bg-secondary ms-2 version-badge">v{{ APP_VERSION }}</span>
+                {% if IS_PRERELEASE %}
+                <span class="badge ms-1" style="background:#eab308;color:#1e293b;font-size:.7em;vertical-align:middle;">
+                    ⚠ TEST-VERSION
+                </span>
+                {% endif %}
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nbar">
                 <span class="navbar-toggler-icon"></span>

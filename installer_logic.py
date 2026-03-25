@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -265,7 +266,8 @@ def stop_service(
     install_dir: Path,
     log: Optional[Callable[[str], None]] = None,
 ) -> None:
-    """Uninstall step 1 – stop the running service."""
+    """Uninstall step 1 – stop the running service and wait until the
+    process has fully released its file handles."""
     nssm = install_dir / "nssm.exe"
     result = run_cmd(["sc.exe", "stop", SERVICE_NAME], check=False)
     if result.returncode == 0:
@@ -278,6 +280,25 @@ def stop_service(
     else:
         if log:
             log("   ℹ Dienst war nicht aktiv oder nicht gefunden.")
+
+    # Wait up to 15 s for the EXE process to actually exit so file
+    # handles are released before we try to delete the install directory.
+    exe_name = f"{APP_NAME}.exe"
+    for _ in range(15):
+        result = run_shell(
+            f'tasklist /FI "IMAGENAME eq {exe_name}" /NH'
+        )
+        if exe_name.lower() not in result.stdout.lower():
+            break
+        if log:
+            log(f"   … warte auf Prozessende von {exe_name}")
+        time.sleep(1)
+    else:
+        # Force-kill if still running after timeout
+        run_shell(f'taskkill /F /IM "{exe_name}"')
+        time.sleep(1)
+        if log:
+            log(f"   ⚠ Prozess {exe_name} wurde zwangsbeendet.")
 
 
 def remove_service(
@@ -338,6 +359,43 @@ def remove_firewall_rules(
         log("   ℹ Keine Firewall-Regeln gefunden.")
 
 
+def _delete_with_retry(
+    path: Path,
+    retries: int = 5,
+    delay: float = 1.5,
+    log: Optional[Callable[[str], None]] = None,
+) -> bool:
+    """Try to delete *path* (file or directory) up to *retries* times.
+    Falls back to scheduling deletion on next reboot via MoveFileEx
+    if the file is still locked after all retries."""
+    for attempt in range(retries):
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            return True
+        except OSError:
+            if attempt < retries - 1:
+                time.sleep(delay)
+
+    # Last resort: schedule deletion on next Windows reboot
+    try:
+        import ctypes
+        MOVEFILE_DELAY_UNTIL_REBOOT = 0x4
+        ok = ctypes.windll.kernel32.MoveFileExW(  # type: ignore[attr-defined]
+            str(path), None, MOVEFILE_DELAY_UNTIL_REBOOT
+        )
+        if ok and log:
+            log(f"   ⚠ Wird beim nächsten Neustart gelöscht: {path.name}")
+        elif log:
+            log(f"   ✗ Konnte nicht gelöscht werden: {path.name}")
+    except Exception:
+        if log:
+            log(f"   ✗ Konnte nicht gelöscht werden: {path.name}")
+    return False
+
+
 def remove_install_dir(
     install_dir: Path,
     log: Optional[Callable[[str], None]] = None,
@@ -348,30 +406,21 @@ def remove_install_dir(
             log(f"   ℹ Verzeichnis existiert nicht: {install_dir}")
         return
 
-    errors: list[str] = []
-    for item in install_dir.iterdir():
-        try:
-            if item.is_dir():
-                shutil.rmtree(item)
-            else:
-                item.unlink()
-            if log:
-                log(f"   ✓ Gelöscht: {item.name}")
-        except OSError as e:
-            errors.append(str(e))
-            if log:
-                log(f"   ⚠ Konnte nicht löschen: {item.name} ({e})")
+    all_ok = True
+    for item in list(install_dir.iterdir()):
+        ok = _delete_with_retry(item, log=log)
+        if ok and log:
+            log(f"   ✓ Gelöscht: {item.name}")
+        else:
+            all_ok = False
 
-    try:
-        install_dir.rmdir()
-        if log:
-            log(f"   ✓ Verzeichnis entfernt: {install_dir}")
-    except OSError:
-        if log:
-            if errors:
-                log("   ⚠ Verzeichnis nicht leer, bitte manuell löschen.")
-            else:
-                log("   ℹ Verzeichnis konnte nicht entfernt werden.")
+    if all_ok:
+        try:
+            install_dir.rmdir()
+            if log:
+                log(f"   ✓ Verzeichnis entfernt: {install_dir}")
+        except OSError:
+            _delete_with_retry(install_dir, log=log)
 
 
 def remove_data_dir(
@@ -383,11 +432,8 @@ def remove_data_dir(
         if log:
             log(f"   ℹ Verzeichnis existiert nicht: {data_dir}")
         return
-    try:
-        shutil.rmtree(data_dir)
-        if log:
-            log(f"   ✓ Datenverzeichnis entfernt: {data_dir}")
-    except OSError as e:
-        if log:
-            log(f"   ⚠ Konnte Datenverzeichnis nicht vollständig löschen: {e}")
-            log(f"     Bitte manuell entfernen: {data_dir}")
+    ok = _delete_with_retry(data_dir, log=log)
+    if ok and log:
+        log(f"   ✓ Datenverzeichnis entfernt: {data_dir}")
+    elif log:
+        log(f"   ⚠ Bitte manuell entfernen: {data_dir}")
