@@ -58,17 +58,23 @@ def log_action(db, action, wheelset_id=None, details=None):
 # --------------------------------------------------------
 def register_routes(app):
     # ---- dark-mode context processor (shared everywhere) ----
-    @app.context_processor
-    def inject_dark_mode():
+    # Cache the value in app.config to avoid a DB query on every request.
+    # Refreshed when settings are saved.
+    def _refresh_dark_mode():
         db = SessionLocal()
         try:
             s = db.query(Settings).first()
-            dark = s.dark_mode if s else False
+            app.config["_TSM_DARK_MODE"] = s.dark_mode if s else False
         except Exception:
-            dark = False
+            app.config.setdefault("_TSM_DARK_MODE", False)
         finally:
             SessionLocal.remove()
-        return {"dark_mode": dark}
+
+    _refresh_dark_mode()
+
+    @app.context_processor
+    def inject_dark_mode():
+        return {"dark_mode": app.config.get("_TSM_DARK_MODE", False)}
 
     @app.route("/")
     def index():
@@ -316,6 +322,7 @@ def register_routes(app):
                         request.form.get("dark_mode") == "1"
                     )
                     db.commit()
+                    _refresh_dark_mode()
                     flash(
                         "Einstellungen gespeichert.",
                         "success",
@@ -395,7 +402,11 @@ def register_routes(app):
     @app.route("/backups")
     def backups():
         files = []
-        for f in os.listdir(BACKUP_DIR):
+        try:
+            entries = os.listdir(BACKUP_DIR)
+        except FileNotFoundError:
+            entries = []
+        for f in entries:
             if f.startswith("wheel_storage_") and (f.endswith(".db") or
                                                    f.endswith(".csv")):
                 p = os.path.join(BACKUP_DIR, f)
@@ -416,6 +427,9 @@ def register_routes(app):
 
     @app.route("/backups/download/<path:filename>")
     def download_backup(filename):
+        # Block path traversal attempts
+        if ("/" in filename or "\\" in filename or ".." in filename):
+            abort(403)
         if not (filename.startswith("wheel_storage_")
                 and (filename.endswith(".db") or filename.endswith(".csv"))):
             abort(403)

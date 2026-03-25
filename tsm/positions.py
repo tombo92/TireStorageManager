@@ -4,7 +4,7 @@
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
 """
-Postions Logic
+Positions Logic
 """
 # ========================================================
 # IMPORTS

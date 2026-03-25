@@ -186,14 +186,26 @@ class TestSettings:
 
     def test_dark_mode_in_html(self, client, seed_settings, db_session):
         """Dark mode injects data-bs-theme into every page."""
-        seed_settings.dark_mode = True
-        db_session.commit()
+        # Enable dark mode via the settings POST (refreshes the cache)
+        token = _get_csrf(client)
+        client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            "dark_mode": "1",
+        }, follow_redirects=True)
         resp = client.get("/")
         assert b'data-bs-theme="dark"' in resp.data
 
     def test_light_mode_in_html(self, client, seed_settings, db_session):
-        seed_settings.dark_mode = False
-        db_session.commit()
+        # Ensure dark mode is off via the settings POST
+        token = _get_csrf(client)
+        client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            # dark_mode omitted → checkbox unchecked → False
+        }, follow_redirects=True)
         resp = client.get("/")
         assert b'data-bs-theme="light"' in resp.data
 

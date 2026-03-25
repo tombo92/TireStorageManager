@@ -69,10 +69,9 @@ def app(db_engine, db_session, monkeypatch):
 
     monkeypatch.setattr(db_mod, "engine", db_engine)
     monkeypatch.setattr(db_mod, "SessionLocal", db_session)
-    # Also patch modules that imported SessionLocal / engine directly
+    # Also patch modules that imported SessionLocal directly
     monkeypatch.setattr(routes_mod, "SessionLocal", db_session)
     monkeypatch.setattr(bm_mod, "SessionLocal", db_session)
-    monkeypatch.setattr(bm_mod, "engine", db_engine)
 
     from tsm.app import create_app
     flask_app = create_app()
