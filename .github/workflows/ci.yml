@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write   # needed to create/update releases
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -62,10 +65,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pillow
-
-      - name: Generate icons
-        run: python tools/generate_icons.py
 
       - name: Build TireStorageManager.exe
         run: pyinstaller TireStorageManager.spec --noconfirm
@@ -106,7 +105,7 @@ jobs:
       - name: Read version from config.py
         id: version
         run: |
-          $ver = python -c "import re, pathlib; m=re.search(r'VERSION\s*=\s*[\"''](.+?)[\"'']', pathlib.Path('config.py').read_text()); print(m.group(1))"
+          $ver = python tools/get_version.py
           echo "APP_VERSION=$ver" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
