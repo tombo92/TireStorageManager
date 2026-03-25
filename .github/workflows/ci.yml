@@ -154,6 +154,15 @@ jobs:
           Copy-Item "dist\TireStorageManager.exe" `
             -Destination "payload\TireStorageManager.exe" -Force
 
+      - name: Mark develop builds as pre-release
+        if: github.ref_name == 'develop'
+        shell: pwsh
+        run: |
+          # Marker file bundled into the installer payload so the
+          # installer GUI and the app EXE both know they are test builds
+          New-Item -ItemType File -Path "payload\PRERELEASE" -Force
+          echo "TSM_PRERELEASE=1" >> $env:GITHUB_ENV
+
       - name: Build TSM-Installer.exe
         run: pyinstaller TSM-Installer.spec --noconfirm
 
@@ -203,11 +212,13 @@ jobs:
       app_version: ${{ steps.version.outputs.APP_VERSION }}
 
   # ──────────────────────────────────────────────────────────────
-  # JOB 4 – Create GitHub Release  (master only, after build)
+  # JOB 4 – Create GitHub Release
+  #   master  → official release  (prerelease: false)
+  #   develop → test release      (prerelease: true, tag: v…-dev)
   # ──────────────────────────────────────────────────────────────
   release:
     needs: [ build ]
-    if: github.ref_name == 'master' && needs.build.result == 'success'
+    if: (github.ref_name == 'master' || github.ref_name == 'develop') && needs.build.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -225,12 +236,28 @@ jobs:
           name: TireStorageManager
           path: release-assets
 
+      - name: Set release metadata
+        id: meta
+        run: |
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            echo "tag=v${{ needs.build.outputs.app_version }}" >> $GITHUB_OUTPUT
+            echo "name=TireStorageManager v${{ needs.build.outputs.app_version }}" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "body_prefix=" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v${{ needs.build.outputs.app_version }}-dev" >> $GITHUB_OUTPUT
+            echo "name=⚠ TEST v${{ needs.build.outputs.app_version }}-dev (develop)" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            printf 'body_prefix=> ⚠ **TEST-BUILD** – Nicht für den produktiven Einsatz.\n' >> $GITHUB_OUTPUT
+          fi
+
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.build.outputs.app_version }}
-          name: "TireStorageManager v${{ needs.build.outputs.app_version }}"
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
           body: |
+            ${{ steps.meta.outputs.body_prefix }}
             ## TireStorageManager v${{ needs.build.outputs.app_version }}
 
             **Automatisch erstellt durch CI-Pipeline.**
@@ -242,12 +269,12 @@ jobs:
             | `TireStorageManager.exe` | Standalone-Anwendung (ohne Installer) |
 
             ### Änderungen
-            Siehe [Commit-Historie](https://github.com/${{ github.repository }}/commits/main).
+            Siehe [Commit-Historie](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}).
           files: |
             release-assets/TSM-Installer.exe
             release-assets/TireStorageManager.exe
           draft: false
-          prerelease: false
-          make_latest: true
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          make_latest: ${{ github.ref_name == 'master' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

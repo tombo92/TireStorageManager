@@ -221,6 +221,7 @@ logs/
 backups/
 *.csv
 payload/TireStorageManager.exe
+payload/PRERELEASE
 build/
 dist/
 
