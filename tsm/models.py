@@ -16,7 +16,7 @@ from sqlalchemy import (Column, Integer, String, DateTime, Text,
 
 
 # ========================================================
-# GLOABALS
+# GLOBALS
 # ========================================================
 Base = declarative_base()
 

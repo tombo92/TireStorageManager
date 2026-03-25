@@ -1,362 +1,179 @@
-# Tire Storage Manager (Brandherm – Reifenmanager)
+# TireStorageManager
 
-A lightweight, single-node **Flask + SQLAlchemy** web app to manage tire sets (Sommer/Winter) with a modern Bootstrap UI, secure SQLite storage, automatic backups, and CSV exports. Designed for small workshops or private use—simple to run on Windows, Linux, or Raspberry Pi.
+> **Hinweis:** Die Benutzeroberfläche dieser Anwendung ist ausschließlich auf Deutsch verfügbar.
 
-- **UI**: Bootstrap 5, clean German interface
-- **Data**: SQLite (WAL + secure_delete)
-- **Features**: add/edit/search tire sets, **position scheme** (container/garage), **disabled positions**, CSV snapshots, **automatic scheduled backups**, **audit log**
-- **Security**: simple CSRF protection; secret key via env var
-- **Maintenance**: **auto-version bump** on `develop` via GitHub Actions; optional **updater** script
+A lightweight web application for managing tire and wheel storage in workshops.
+Customers' wheel sets are tracked by storage position, vehicle, and season.
+The application runs as a **Windows Service** and is accessible from any device in the local network via a browser — no installation required on client machines.
 
 ---
 
-## 📦 Repository Layout
+## Features
 
-```
-.
-├─ db/                  # (optional) db utilities if you keep them here
-├─ static/              # CSS, JS and assets served at /static
-│  ├─ css/
-│  │  └─ style.css
-│  └─ js/
-│     └─ script.js
-├─ templates/           # Jinja2 templates
-│  ├─ base.html
-│  ├─ index.html
-│  ├─ positions.html
-│  ├─ wheelsets_list.html
-│  ├─ wheelset_form.html
-│  ├─ delete_confirm.html
-│  ├─ backups.html
-│  └─ settings.html
-├─ tools/               # developer/admin tools
-│  ├─ bump_version.py   # bumps VERSION in config.py (used by CI)
-│  └─ quick_disable.py  # CLI to disable/enable/list positions
-├─ tsm/                 # application package
-│  ├─ __init__.py
-│  ├─ app.py            # create_app()
-│  ├─ routes.py         # all Flask routes
-│  ├─ db.py             # SQLAlchemy engine + SessionLocal
-│  ├─ models.py         # ORM models (WheelSet/Settings/AuditLog/DisabledPosition)
-│  ├─ positions.py      # position scheme, validation, free/disabled logic
-│  ├─ utils.py          # CSRF helpers
-│  └─ backup_manager.py # background backup + CSV snapshot
-├─ config.py            # app config (VERSION, HOST/PORT, paths, etc.)
-├─ run.py               # entry point (`python run.py`)
-├─ requirements.txt
-├─ pyproject.toml       # package metadata (optional dev)
-└─ .github/
-   └─ workflows/
-      └─ bump-version.yml
-```
-
-> **Note:** You can keep `templates/` and `static/` at repo root or under `tsm/`; just ensure `Flask(__name__, template_folder=..., static_folder=...)` points to them in `tsm/app.py`.
+- 📦 Manage wheel sets with customer name, vehicle, position, and notes
+- 🗺️ Visual storage position overview with free/occupied status
+- 🔍 Full-text search and filter by season / customer
+- 💾 Automatic daily database backups with configurable retention
+- 🔄 Self-update mechanism via GitHub Releases
+- 🖥️ Runs as a Windows Service (via [NSSM](https://nssm.cc/))
+- 🖱️ Graphical installer/uninstaller — no Python required on the target machine
+- 🔗 Optional desktop shortcut created during installation
 
 ---
 
-## ✅ Features
+## Screenshots
 
-- Add / edit / delete tire sets (**Kunde**, **Kennzeichen**, **Fahrzeug**, **Position**, **Notiz**)
-- Powerful **positioning scheme**:
-  - Containers: `C[1-4][R|L][O|M|U][LL|L|MM|M|RR|R]`
-  - Garage: `GR[1-8][O|M|U][L|M|R]`
-  - **Disabled positions**: mark unusable spots; excluded from suggestions and dropdowns
-- **Search** by name, plate, vehicle
-- **Backups**: automatic SQLite backups + **CSV snapshots** with retention
-- **Audit log** for create/update/delete/backup events
-- **CSRF** protection for forms
-- **Nice UI controls**:
-  - Click **free position buttons** to preselect a new wheel set
-  - **A− / A+** in navbar to adjust position size persistently (localStorage)
+> _Add screenshots here once the application is running._
 
 ---
 
-## 🧩 Requirements
+## Quick Start (Developer)
 
-- **Python** ≥ 3.10
-- Pip / venv
-- Windows 10/11, Linux (Ubuntu/Debian), or Raspberry Pi OS
-- (Optional) GitHub account if you use the CI bump workflow
+### Prerequisites
 
----
+- Python 3.10+
+- Windows (or Linux/macOS for development; service features are Windows-only)
 
-## 🚀 Installation & First Run
-
-### 1) Clone & create a virtual environment
+### Setup
 
 ```bash
-git clone https://github.com/<YOUR-ORG-OR-USER>/TireStorageManager.git
+git clone https://github.com/tombo92/TireStorageManager.git
 cd TireStorageManager
-
-# Create and activate venv
 python -m venv .venv
-# Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
-# Linux/macOS:
-source .venv/bin/activate
-
-# Install dependencies
+source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+pip install -r requirements-test.txt
 ```
 
-### 2) Configure secrets (recommended)
+### Run in development mode
 
-Set the Flask secret key via environment variable:
+```bash
+python run.py --dev
+```
 
-- **Windows PowerShell**
+The app will be available at `http://localhost:5000`.
 
-  ```powershell
-  $env:WHEELS_SECRET_KEY = "<a-long-random-secret>"
-  ```
-- **Linux**
-
-  ```bash
-  export WHEELS_SECRET_KEY="<a-long-random-secret>"
-  ```
-
-> You can also edit `config.py` for `HOST`, `PORT`, `BACKUP_DIR`, etc.
-
-### 3) Run the app
+### Run in production mode (Waitress)
 
 ```bash
 python run.py
 ```
 
-Open: `http://<SERVER-IP>:5000`
+---
 
-> DB tables are created automatically on first run.
+## Environment Variables
+
+| Variable        | Default             | Description                                      |
+|-----------------|---------------------|--------------------------------------------------|
+| `TSM_APP_NAME`  | `Reifenmanager`     | Application title shown in the UI                |
+| `TSM_SECRET_KEY`| `change-me-please`  | Flask session secret key — **change in production** |
+| `TSM_DATA_DIR`  | _(repo root)_       | Base directory for `db/`, `backups/`, `logs/`    |
+| `TSM_PORT`      | `5000`              | HTTP port the server listens on                  |
+| `TSM_LOG_LEVEL` | `INFO`              | Python logging level (`DEBUG`, `INFO`, `WARNING`, …) |
 
 ---
 
-## 🔧 Configuration
+## Windows Installer
 
-`config.py` is the canonical place for:
+The project ships a standalone **`TSM-Installer.exe`** built with PyInstaller.
+It requires no Python installation on the target machine.
 
-- `VERSION` — app version (auto-bumped by CI on `develop`)
-- `APP_NAME`
-- `DB_PATH` — SQLite file path
-- `BACKUP_DIR` — where `.db` and `.csv` backups land
-- `SECRET_KEY` — taken from `WHEELS_SECRET_KEY` env if set
-- `HOST` / `PORT` — default `0.0.0.0:5000`
+### Installer fields
 
-**Environment variables**
+| Field                        | Description                                                  |
+|------------------------------|--------------------------------------------------------------|
+| Installationsverzeichnis     | Directory for `TireStorageManager.exe` and `nssm.exe`        |
+| Datenverzeichnis             | Directory for the database, backups, and log files           |
+| HTTP Port                    | Port the web server listens on (default: `5000`)             |
+| Programmtitel                | Custom application title shown in the UI                     |
+| Geheimer Schlüssel           | Flask session secret key for session security                |
+| Desktop-Verknüpfung erstellen | Creates a `.url` shortcut on the desktop pointing to the web interface |
 
-- `WHEELS_SECRET_KEY` — (recommended) secret key for session/CSRF
-- Updater (optional):
-  - `TSM_GH_OWNER`, `TSM_GH_REPO`, `TSM_GH_BRANCH`
-  - `GITHUB_TOKEN` (to avoid API rate limits)
+The installer:
+1. Creates all required directories
+2. Deploys `nssm.exe` and `TireStorageManager.exe`
+3. Seeds the database (if not present)
+4. Adds a Windows Firewall inbound rule
+5. Registers and starts a Windows Service (auto-start)
+6. Creates a scheduled daily service restart at 03:00
+7. Optionally creates a desktop shortcut (All Users Desktop)
+
+The uninstaller reverses all steps and optionally keeps the data directory.
 
 ---
 
-## 🧭 Using the Tools
-
-### Disable / enable unusable positions
+## Building the EXE
 
 ```bash
-# List disabled positions
-python tools/quick_disable.py --list
+# Install build dependencies
+pip install pyinstaller pillow
 
-# Disable a position with a reason
-python tools/quick_disable.py --disable C1ROLR --reason "Shelf damaged"
+# Generate icons
+python tools/generate_icons.py
 
-# Enable again
-python tools/quick_disable.py --enable C1ROLR
+# Build the main application EXE
+pyinstaller TireStorageManager.spec --noconfirm
+
+# Copy into payload so the installer can bundle it
+copy dist\TireStorageManager.exe payload\TireStorageManager.exe
+
+# Build the installer EXE
+pyinstaller TSM-Installer.spec --noconfirm
+# → dist\TSM-Installer.exe
 ```
-
-> If you see `ModuleNotFoundError: No module named 'tsm'`, run from the repo root **or** add:
->
-> ```python
-> # inside tools/quick_disable.py, before imports
-> import sys
-> from pathlib import Path
-> ROOT = Path(__file__).resolve().parents[1]
-> sys.path.insert(0, str(ROOT))
-> ```
 
 ---
 
-## 🔁 Automatic Version Bump on `develop`
-
-This repo includes a GitHub Actions workflow that **increments the PATCH** version on every push to `develop`.
-
-- Script: `tools/bump_version.py` — bumps `VERSION="x.y.z"` in `config.py` and prints it
-- Workflow: `.github/workflows/bump-version.yml` — commits the change and tags `vX.Y.Z`
-
-> The job is skipped for the bot’s own commit to avoid loops and uses concurrency to avoid racing bumps.
-
----
-
-## 💾 Backups & CSV Exports
-
-- The **Backup Manager** runs in the background and:
-  - Creates a timestamped **`.db` backup** via SQLite online backup API
-  - Creates a matching **CSV snapshot**
-  - Enforces retention (`Settings` → **Backup copies**)
-- You can also trigger:
-  - **Backup now**: _Backups_ → **Backup jetzt erstellen**
-  - **CSV now**: _Backups_ → **CSV jetzt exportieren**
-
----
-
-## 🌐 Static IP (so others in your LAN can reach it)
-
-To ensure the server is reachable at a fixed address like `http://192.168.1.50:5000`, set a **static IP** or a **DHCP reservation**.
-Do **one** of the following:
-
-### Option A — DHCP Reservation (recommended)
-
-- Go to your router/admin UI
-- Find your server’s MAC address (in OS network settings)
-- Create a **DHCP reservation** → always assign the same IP to this MAC
-
-> This keeps central control and avoids conflicts. Each router UI differs (search your router model for exact steps).
-
-### Option B — Static IP on Windows 10/11
-
-**GUI**
-
-1. _Settings_ → **Network & Internet** → **Change adapter options**
-2. Right-click your Ethernet/Wi‑Fi → **Properties**
-3. Select **Internet Protocol Version 4 (TCP/IPv4)** → **Properties**
-4. Choose **Use the following IP address**
-   - IP address: e.g. `192.168.1.50`
-   - Subnet mask: `255.255.255.0` (typical)
-   - Default gateway: your router, e.g. `192.168.1.1`
-   - DNS: use router (`192.168.1.1`) or public (`1.1.1.1`, `8.8.8.8`)
-5. Save and reconnect.
-
-**PowerShell**
-
-```powershell
-# Replace with your interface alias and desired config
-$if = "Ethernet"                   # use Get-NetAdapter to list
-$ip = "192.168.1.50"
-$prefix = 24                       # 255.255.255.0
-$gw = "192.168.1.1"
-$dns = @("1.1.1.1","8.8.8.8")
-
-# Remove DHCP IPv4 if present
-Set-NetIPInterface -InterfaceAlias $if -Dhcp Disabled -AddressFamily IPv4
-Remove-NetIPAddress -InterfaceAlias $if -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
-
-# Set static
-New-NetIPAddress -InterfaceAlias $if -IPAddress $ip -PrefixLength $prefix -DefaultGateway $gw
-Set-DnsClientServerAddress -InterfaceAlias $if -ServerAddresses $dns
-```
-
-### Option C — Static IP on Ubuntu/Debian (netplan)
-
-Edit `/etc/netplan/*.yaml` (create one if empty):
-
-```yaml
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    enp3s0:
-      dhcp4: no
-      addresses: [192.168.1.50/24]
-      gateway4: 192.168.1.1
-      nameservers:
-        addresses: [1.1.1.1,8.8.8.8]
-```
-
-Apply:
+## Running Tests
 
 ```bash
-sudo netplan apply
+pytest tests/ -v --tb=short
 ```
 
-> Replace `enp3s0` with your NIC (`ip link`), and the IP/gateway/DNS to your network.
-
-### Open Firewall
-
-- **Windows**: allow inbound TCP **5000** (or your configured port)
-- **Linux** (ufw):
-  ```bash
-  sudo ufw allow 5000/tcp
-  ```
-
-Now others on the LAN can use: `http://<static-ip>:5000`
+125 tests covering routes, models, backup manager, positions, installer logic, self-update, and utilities.
 
 ---
 
-## 🛠️ Production (optional)
+## CI/CD
 
-For a more resilient setup:
+GitHub Actions pipeline (`.github/workflows/ci.yml`):
 
-- **systemd** service (Linux):
-
-  `/etc/systemd/system/tsm.service`
-
-  ```ini
-  [Unit]
-  Description=Tire Storage Manager
-  After=network.target
-
-  [Service]
-  WorkingDirectory=/opt/TireStorageManager
-  Environment=WHEELS_SECRET_KEY=<your-secret>
-  ExecStart=/opt/TireStorageManager/.venv/bin/python run.py
-  Restart=on-failure
-  User=tsm
-  Group=tsm
-
-  [Install]
-  WantedBy=multi-user.target
-  ```
-
-  ```bash
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now tsm.service
-  ```
-- **Windows**: run via **Task Scheduler** at logon or use **NSSM** to create a service that starts `python run.py` in your repo directory with the venv.
+| Job       | Runner           | Trigger                        | What it does                                  |
+|-----------|------------------|--------------------------------|-----------------------------------------------|
+| `test`    | `ubuntu-latest`  | every push / PR                | Runs the full pytest suite                    |
+| `build`   | `windows-latest` | after `test` passes            | Builds both EXEs, runs smoke test             |
+| `release` | `windows-latest` | push to `main` only            | Uploads `TSM-Installer.exe` as a GitHub Release |
 
 ---
 
-## 🧪 Troubleshooting
+## Project Structure
 
-- **`TemplateNotFound: wheelsets_list.html`**Your `templates` folder is not where Flask expects it.Fix by either:
-
-  - Move `templates/` under `tsm/` and use `app = Flask(__name__)`, **or**
-  - Point Flask explicitly:
-    ```python
-    # tsm/app.py
-    from pathlib import Path
-    ROOT = Path(__file__).resolve().parents[1]
-    app = Flask(__name__, template_folder=str(ROOT/"templates"), static_folder=str(ROOT/"static"))
-    ```
-
-  Restart after changes.
-- **Static 404 (`/static/css/style.css`)**Ensure `static/css/style.css` exists and your `base.html` uses:
-
-  ```jinja2
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ APP_VERSION }}">
-  <script src="{{ url_for('static', filename='js/script.js') }}?v={{ APP_VERSION }}"></script>
-  ```
-- **`ModuleNotFoundError: No module named 'tsm'` (tools)**Run from repo root or add:
-
-  ```python
-  import sys, pathlib
-  ROOT = pathlib.Path(__file__).resolve().parents[1]
-  sys.path.insert(0, str(ROOT))
-  ```
-- **Note field shows “None” on edit**
-  Use Jinja `{{ w.note|default('', true) }}` and normalize on POST:
-
-  ```python
-  note_input = (request.form.get("note") or "").strip()
-  note = None if (not note_input or note_input.lower() == "none") else note_input
-  ```
+```
+TireStorageManager/
+├── tsm/                    # Application package
+│   ├── app.py              # Flask app factory
+│   ├── models.py           # SQLAlchemy models
+│   ├── routes.py           # URL routes
+│   ├── db.py               # Database session helpers
+│   ├── backup_manager.py   # Automatic backup logic
+│   ├── positions.py        # Storage position helpers
+│   ├── utils.py            # CSRF, resource path helpers
+│   └── self_update.py      # Self-update via GitHub Releases
+├── templates/              # Jinja2 HTML templates
+├── static/                 # CSS and JavaScript
+├── tests/                  # pytest test suite
+├── tools/                  # Developer utilities (version bump, icon gen, …)
+├── payload/                # Bundled assets for the installer (nssm.exe, seed DB)
+├── config.py               # Central configuration (reads env vars)
+├── run.py                  # Application entry point (dev + prod)
+├── installer_logic.py      # Pure-logic install/uninstall steps (no Tkinter)
+├── TSMInstaller.py         # Tkinter installer/uninstaller GUI
+├── TireStorageManager.spec # PyInstaller spec for the app EXE
+└── TSM-Installer.spec      # PyInstaller spec for the installer EXE
+```
 
 ---
 
-## 📄 License
+## License
 
-Add your license here (e.g., MIT).
-
----
-
-## 🙌 Acknowledgements
-
-- Flask, SQLAlchemy, Bootstrap
+MIT License — see [LICENSE](LICENSE) for details.
