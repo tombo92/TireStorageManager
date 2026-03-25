@@ -27,86 +27,15 @@ concurrency:
   cancel-in-progress: true
 
 # ──────────────────────────────────────────────────────────────
-# JOB 1 – Bump VERSION in config.py and push the commit
-#   • develop push → patch bump  (1.2.3 → 1.2.4)
-#   • master  push → minor bump  (1.2.3 → 1.3.0), then sync to develop
-#   • pull_request → skipped (no bump on PRs)
+# JOB 1 – Run unit tests  (every push & PR, all branches)
 # ──────────────────────────────────────────────────────────────
 jobs:
-  bump:
-    if: >
-      github.event_name == 'push' &&
-      github.actor != 'github-actions[bot]' &&
-      (github.ref_name == 'master' || github.ref_name == 'develop')
-    runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.bump.outputs.NEW_VERSION }}
-
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Bump version in config.py
-        id: bump
-        run: |
-          if [ "${{ github.ref_name }}" = "master" ]; then
-            NEW_VERSION=$(python tools/bump_version.py --minor)
-          else
-            NEW_VERSION=$(python tools/bump_version.py)
-          fi
-          echo "NEW_VERSION=$NEW_VERSION"
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Commit, tag & push
-        run: |
-          if git diff --quiet; then
-            echo "Nothing to commit."
-            exit 0
-          fi
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add config.py CHANGELOG.md
-          git commit -m "chore(version): bump to ${{ steps.bump.outputs.NEW_VERSION }} [skip ci]"
-          git tag -a "v${{ steps.bump.outputs.NEW_VERSION }}" \
-                    -m "Release ${{ steps.bump.outputs.NEW_VERSION }}"
-          git push origin HEAD:${{ github.ref_name }}
-          git push origin "v${{ steps.bump.outputs.NEW_VERSION }}"
-
-      - name: Sync bumped version back to develop (master only)
-        if: github.ref_name == 'master'
-        run: |
-          git fetch origin develop
-          git checkout develop
-          BUMP_SHA=$(git rev-parse origin/master)
-          git cherry-pick "$BUMP_SHA" || true
-          if ! git diff --quiet; then
-            git add config.py
-            git cherry-pick --continue --no-edit || true
-          fi
-          git push origin HEAD:develop
-
-  # ──────────────────────────────────────────────────────────────
-  # JOB 2 – Run unit tests  (runs after bump; also runs on PRs)
-  # ──────────────────────────────────────────────────────────────
   test:
-    needs: [ bump ]
-    if: always() && (needs.bump.result == 'success' || needs.bump.result == 'skipped')
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
-          # For push events on master/develop, check out the bump commit
-          # (has the new version).  For all other branches and PRs the
-          # bump job was skipped so HEAD is already the right commit.
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.12
@@ -131,17 +60,17 @@ jobs:
           path: test-results.xml
 
   # ──────────────────────────────────────────────────────────────
-  # JOB 3 – Build EXEs on Windows  (only on push, after tests pass)
+  # JOB 2 – Build EXEs on Windows  (only on push, after tests pass)
   # ──────────────────────────────────────────────────────────────
   build:
-    needs: [ bump, test ]
+    needs: [ test ]
     if: github.event_name == 'push' && needs.test.result == 'success'
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}   # includes the bump commit on master/develop
+          ref: ${{ github.sha }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -272,14 +201,83 @@ jobs:
       app_version: ${{ steps.version.outputs.APP_VERSION }}
 
   # ──────────────────────────────────────────────────────────────
+  # JOB 3 – Bump VERSION in config.py  (only after build passes,
+  #          only on master/develop pushes)
+  #   • develop push → patch bump  (1.2.3 → 1.2.4)
+  #   • master  push → minor bump  (1.2.3 → 1.3.0), then sync to develop
+  # ──────────────────────────────────────────────────────────────
+  bump:
+    needs: [ build ]
+    if: >
+      needs.build.result == 'success' &&
+      github.event_name == 'push' &&
+      github.actor != 'github-actions[bot]' &&
+      (github.ref_name == 'master' || github.ref_name == 'develop')
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.NEW_VERSION }}
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Bump version in config.py
+        id: bump
+        run: |
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            NEW_VERSION=$(python tools/bump_version.py --minor)
+          else
+            NEW_VERSION=$(python tools/bump_version.py)
+          fi
+          echo "NEW_VERSION=$NEW_VERSION"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit, tag & push
+        run: |
+          if git diff --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config.py CHANGELOG.md
+          git commit -m "chore(version): bump to ${{ steps.bump.outputs.NEW_VERSION }} [skip ci]"
+          git tag -a "v${{ steps.bump.outputs.NEW_VERSION }}" \
+                    -m "Release ${{ steps.bump.outputs.NEW_VERSION }}"
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "v${{ steps.bump.outputs.NEW_VERSION }}"
+
+      - name: Sync bumped version back to develop (master only)
+        if: github.ref_name == 'master'
+        run: |
+          git fetch origin develop
+          git checkout develop
+          BUMP_SHA=$(git rev-parse origin/master)
+          git cherry-pick "$BUMP_SHA" || true
+          if ! git diff --quiet; then
+            git add config.py
+            git cherry-pick --continue --no-edit || true
+          fi
+          git push origin HEAD:develop
+
+  # ──────────────────────────────────────────────────────────────
   # JOB 4 – Create GitHub Release
   #   master  → official release  (prerelease: false)
   #   develop → test release      (prerelease: true, tag: v…-dev)
   # ──────────────────────────────────────────────────────────────
   release:
-    needs: [ build ]
+    needs: [ build, bump ]
     if: >
       needs.build.result == 'success' &&
+      needs.bump.result == 'success' &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
 
@@ -296,7 +294,7 @@ jobs:
       - name: Extract changelog notes
         id: changelog
         run: |
-          NOTES=$(python tools/extract_changelog.py "${{ needs.build.outputs.app_version }}")
+          NOTES=$(python tools/extract_changelog.py "${{ needs.bump.outputs.new_version }}")
           if [ -z "$NOTES" ]; then
             NOTES="Siehe [Commit-Historie](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }})."
           fi
@@ -323,13 +321,13 @@ jobs:
         id: meta
         run: |
           if [ "${{ github.ref_name }}" = "master" ]; then
-            echo "tag=v${{ needs.build.outputs.app_version }}" >> $GITHUB_OUTPUT
-            echo "name=TireStorageManager v${{ needs.build.outputs.app_version }}" >> $GITHUB_OUTPUT
+            echo "tag=v${{ needs.bump.outputs.new_version }}" >> $GITHUB_OUTPUT
+            echo "name=TireStorageManager v${{ needs.bump.outputs.new_version }}" >> $GITHUB_OUTPUT
             echo "prerelease=false" >> $GITHUB_OUTPUT
             echo "body_prefix=" >> $GITHUB_OUTPUT
           else
-            echo "tag=v${{ needs.build.outputs.app_version }}-dev" >> $GITHUB_OUTPUT
-            echo "name=⚠ TEST v${{ needs.build.outputs.app_version }}-dev (develop)" >> $GITHUB_OUTPUT
+            echo "tag=v${{ needs.bump.outputs.new_version }}-dev" >> $GITHUB_OUTPUT
+            echo "name=⚠ TEST v${{ needs.bump.outputs.new_version }}-dev (develop)" >> $GITHUB_OUTPUT
             echo "prerelease=true" >> $GITHUB_OUTPUT
             printf 'body_prefix=> ⚠ **TEST-BUILD** – Nicht für den produktiven Einsatz.\n' >> $GITHUB_OUTPUT
           fi
@@ -341,7 +339,7 @@ jobs:
           name: ${{ steps.meta.outputs.name }}
           body: |
             ${{ steps.meta.outputs.body_prefix }}
-            ## TireStorageManager v${{ needs.build.outputs.app_version }}
+            ## TireStorageManager v${{ needs.bump.outputs.new_version }}
 
             ${{ steps.changelog.outputs.NOTES }}
 
