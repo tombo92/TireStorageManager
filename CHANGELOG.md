@@ -18,13 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.3] – 2026-03-25
-
+## [1.4.4] – 2026-03-25
 ### Added
+- **German licence-plate validation** — the wheelset form enforces the standard German plate format (`ORT-KK 1234`, optional `E`/`H` suffix) both in the browser (live validity indicator, Bootstrap feedback) and on the server (regex check in `utils.py`). Invalid plates are rejected before saving.
+- Licence plate input auto-uppercases while typing; no silent reformatting of the entered value.
+- Delete-confirmation input also auto-uppercases to prevent case mismatches.
+- **CI/CD – all-branch test & build**: `test` and `build` jobs now run on every push and pull-request (all branches). `bump` and `release` are restricted to `master`/`develop` only.
 - **Update Management UI** – Check for updates from the web interface, see release notes, and trigger immediate updates from Settings.
 - Auto-update toggle in Settings (automatic update on service restart at 03:00).
 - Update-available banner on every page with release notes preview.
 - AJAX-based update check with 10-minute server-side cache.
+### Fixed
+- `subprocess.DETACHED_PROCESS` / `CREATE_NO_WINDOW` are Windows-only constants; guarded with `getattr(subprocess, …, 0)` so tests pass on Linux CI.
+- Smoke test concurrency suite used invalid German plate format (`CC-00 0001`) which caused all writes to be rejected on a clean CI database; replaced with valid plates (`B-CC 0001`…`B-CC 0010`).
 
 ## [1.4.2] – 2026-03-15
 

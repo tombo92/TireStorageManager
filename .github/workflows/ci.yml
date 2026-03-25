@@ -2,7 +2,6 @@ name: CI – Bump, Test, Build & Release
 
 on:
   push:
-    branches: [ master, develop ]
     paths:
       - '**.py'
       - 'templates/**'
@@ -10,7 +9,12 @@ on:
       - 'requirements*.txt'
       - 'pyproject.toml'
   pull_request:
-    branches: [ master ]
+    paths:
+      - '**.py'
+      - 'templates/**'
+      - 'static/**'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
 
 permissions:
   contents: write   # needed for version bump commits, tags, and releases
@@ -30,7 +34,10 @@ concurrency:
 # ──────────────────────────────────────────────────────────────
 jobs:
   bump:
-    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    if: >
+      github.event_name == 'push' &&
+      github.actor != 'github-actions[bot]' &&
+      (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.bump.outputs.NEW_VERSION }}
@@ -97,9 +104,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # For push events, check out the bump commit (has new version);
-          # for PRs the bump job was skipped so HEAD is the PR branch.
-          ref: ${{ github.ref_name }}
+          # For push events on master/develop, check out the bump commit
+          # (has the new version).  For all other branches and PRs the
+          # bump job was skipped so HEAD is already the right commit.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -133,7 +141,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}   # includes the bump commit
+          ref: ${{ github.sha }}   # includes the bump commit on master/develop
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -270,7 +278,9 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   release:
     needs: [ build ]
-    if: (github.ref_name == 'master' || github.ref_name == 'develop') && needs.build.result == 'success'
+    if: >
+      needs.build.result == 'success' &&
+      (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
 
     steps:

@@ -221,12 +221,12 @@ Exit code `0` = all checks passed. Exit code `1` = one or more failures (details
 
 GitHub Actions pipeline (`.github/workflows/ci.yml`) — single workflow, 4 jobs:
 
-| Job         | Runner             | Trigger                  | What it does                                                        |
-| ----------- | ------------------ | ------------------------ | ------------------------------------------------------------------- |
-| `bump`    | `ubuntu-latest`  | push to master/develop   | Bumps VERSION (minor on master, patch on develop)                   |
-| `test`    | `ubuntu-latest`  | every push / PR          | Runs the full pytest suite                                          |
-| `build`   | `windows-latest` | after `test` passes    | Builds both EXEs, smoke test, optional code signing                 |
-| `release` | `ubuntu-latest`  | after `build` succeeds | Creates GitHub Release (official on master, pre-release on develop) |
+| Job | Runner | Trigger | What it does |
+| --- | --- | --- | --- |
+| `bump` | `ubuntu-latest` | push to **master/develop** only | Bumps VERSION (patch on develop, minor on master) |
+| `test` | `ubuntu-latest` | **every push & PR** (all branches) | Runs the full pytest suite |
+| `build` | `windows-latest` | **every push** (all branches) after `test` passes | Builds both EXEs, smoke test, optional code signing |
+| `release` | `ubuntu-latest` | after `build` succeeds on **master/develop** only | Creates GitHub Release (official on master, pre-release on develop) |
 
 ---
 
