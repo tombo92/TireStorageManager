@@ -169,10 +169,15 @@ jobs:
       - name: Smoke-test TireStorageManager.exe
         shell: pwsh
         run: |
+          # --no-update prevents the EXE from self-updating and exiting
+          # before the HTTP probe can connect.
           $proc = Start-Process -FilePath "dist\TireStorageManager.exe" `
             -ArgumentList "--port","59123","--host","127.0.0.1",
-                          "--data-dir","$env:RUNNER_TEMP\tsm_smoke" `
+                          "--data-dir","$env:RUNNER_TEMP\tsm_smoke",
+                          "--no-update" `
             -PassThru -NoNewWindow
+
+          # ── Wait for the server to come up (up to 30 s) ─────────────
           $ok = $false
           for ($i = 0; $i -lt 30; $i++) {
             Start-Sleep -Seconds 1
@@ -182,12 +187,29 @@ jobs:
               if ($r.StatusCode -eq 200) { $ok = $true; break }
             } catch {}
           }
-          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           if (-not $ok) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             Write-Error "EXE did not respond on :59123 within 30 s"
             exit 1
           }
-          Write-Host "✓ Smoke test passed"
+          Write-Host "EXE is up – running full smoke test suite ..."
+
+          # ── Full HTTP smoke test (stdlib-only Python) ─────────────────
+          python tools/smoke_test.py `
+            --base-url  http://127.0.0.1:59123 `
+            --exe-path  dist\TireStorageManager.exe `
+            --data-dir  "$env:RUNNER_TEMP\tsm_smoke" `
+            --port      59123
+          $smokeExit = $LASTEXITCODE
+
+          # ── Tear down EXE ─────────────────────────────────────────────
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
+          if ($smokeExit -ne 0) {
+            Write-Error "Smoke test suite reported failures (exit $smokeExit)"
+            exit 1
+          }
+          Write-Host "All smoke tests passed."
 
       - name: Sign EXEs (self-signed certificate)
         if: env.CODE_SIGN_PFX_BASE64 != ''
