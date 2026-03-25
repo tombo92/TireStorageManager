@@ -225,14 +225,18 @@ class TestCreateUpdateTask:
 # UNINSTALL STEPS
 # ────────────────────────────────────────────────
 class TestStopService:
+    @patch.object(logic, "time")
+    @patch.object(logic, "run_shell", return_value=_ok(0, stdout=""))
     @patch.object(logic, "run_cmd", return_value=_ok(0))
-    def test_stop_via_sc(self, mock_run, tmp_path: Path):
+    def test_stop_via_sc(self, mock_cmd, mock_shell, mock_time, tmp_path: Path):
         msgs: list[str] = []
         logic.stop_service(tmp_path / "install", log=msgs.append)
         assert "gestoppt" in msgs[0]
 
+    @patch.object(logic, "time")
+    @patch.object(logic, "run_shell", return_value=_ok(0, stdout=""))
     @patch.object(logic, "run_cmd", return_value=_ok(1))
-    def test_fallback_to_nssm(self, mock_run, tmp_path: Path):
+    def test_fallback_to_nssm(self, mock_cmd, mock_shell, mock_time, tmp_path: Path):
         install = tmp_path / "install"
         install.mkdir()
         nssm = install / "nssm.exe"
@@ -241,8 +245,10 @@ class TestStopService:
         logic.stop_service(install, log=msgs.append)
         assert "NSSM" in msgs[0]
 
+    @patch.object(logic, "time")
+    @patch.object(logic, "run_shell", return_value=_ok(0, stdout=""))
     @patch.object(logic, "run_cmd", return_value=_ok(1))
-    def test_not_running(self, mock_run, tmp_path: Path):
+    def test_not_running(self, mock_cmd, mock_shell, mock_time, tmp_path: Path):
         msgs: list[str] = []
         logic.stop_service(tmp_path / "empty", log=msgs.append)
         assert "nicht aktiv" in msgs[0] or "ℹ" in msgs[0]
