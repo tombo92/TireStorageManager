@@ -4,10 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tire-storage-manager"
-version = "0.0.0"  # your runtime version still in config.py
-description = "Tire Storage Manager"
+version = "1.2.0"  # keep in sync with config.py VERSION
+description = "Lightweight tire/wheel storage management web app for workshops"
 requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["tsm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

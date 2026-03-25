@@ -9,7 +9,6 @@ DB
 # ========================================================
 # IMPORTS
 # ========================================================
-import sqlite3
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, scoped_session
 # --------------------------------------------------------
@@ -19,7 +18,7 @@ from config import DB_PATH
 from tsm.models import Base  # ensure models import happens before create_all
 
 # ========================================================
-# GLOABALS
+# GLOBALS
 # ========================================================
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 engine = create_engine(
