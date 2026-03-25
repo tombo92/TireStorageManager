@@ -33,14 +33,14 @@ class BackupManager(threading.Thread):
         super().__init__()
         self.engine = engine
         self.backup_dir = backup_dir
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._last_run = None
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 db = SessionLocal()
                 settings = db.query(Settings).first()
