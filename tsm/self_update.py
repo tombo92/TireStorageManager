@@ -201,11 +201,11 @@ def _swap_exe(current: Path, new_exe: Path) -> bool:
 
         # Rename running exe out of the way
         os.rename(current, old_backup)
-        log.info("Renamed running EXE → %s", old_backup.name)
+        log.info("Renamed running EXE -> %s", old_backup.name)
 
         # Put new exe in place
         os.rename(new_exe, current)
-        log.info("New EXE installed → %s", current.name)
+        log.info("New EXE installed -> %s", current.name)
         return True
 
     except OSError as e:
@@ -228,7 +228,7 @@ def _restart_service():
         f'timeout /t 3 /nobreak >nul & '
         f'sc.exe start {SERVICE_NAME}"'
     )
-    log.info("Scheduling service restart …")
+    log.info("Scheduling service restart ...")
     try:
         subprocess.Popen(
             restart_cmd, shell=True,
@@ -341,7 +341,7 @@ def check_for_update() -> bool:
         log.warning("Cannot import config.VERSION — skip update.")
         return False
 
-    log.info("Current version: %s — checking for updates …",
+    log.info("Current version: %s - checking for updates ...",
              local_version)
 
     # ── Primary: check GitHub Releases ──
@@ -376,7 +376,7 @@ def check_for_update() -> bool:
         log.info("Already up-to-date (%s).", local_version)
         return False
 
-    log.info("Update available: %s → %s", local_version, remote_version)
+    log.info("Update available: %s -> %s", local_version, remote_version)
 
     # ── Download: need an .exe asset from a release ──
     if not asset:
@@ -389,7 +389,7 @@ def check_for_update() -> bool:
     download_url = asset.get("browser_download_url") or asset.get("url")
     asset_size = asset.get("size", 0)
     log.info(
-        "Downloading %s (%.1f MB) …",
+        "Downloading %s (%.1f MB) ...",
         ASSET_NAME, asset_size / 1024 / 1024)
 
     # Download to a temp file next to the current EXE
@@ -410,13 +410,13 @@ def check_for_update() -> bool:
             tmp_file.unlink(missing_ok=True)
             return False
 
-        log.info("Download complete. Swapping EXE …")
+        log.info("Download complete. Swapping EXE ...")
         if not _swap_exe(current, tmp_file):
             tmp_file.unlink(missing_ok=True)
             return False
 
         log.info(
-            "✅ Updated %s → %s. Restarting service …",
+            "OK: Updated %s -> %s. Restarting service ...",
             local_version, remote_version)
         _restart_service()
         return True

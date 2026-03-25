@@ -49,8 +49,12 @@ from config import BACKUP_DIR, LOG_LEVEL, LOG_DIR       # noqa: E402
 log_formatter = logging.Formatter(
     "%(asctime)s %(levelname)s [%(name)s] %(message)s")
 
-# Console handler
-_console = logging.StreamHandler(sys.stdout)
+# Console handler — force UTF-8 with replacement so Unicode log
+# messages don't crash on Windows cp1252 terminals.
+_console = logging.StreamHandler(
+    open(sys.stdout.fileno(), mode="w",
+         encoding="utf-8", errors="replace", closefd=False)
+)
 _console.setFormatter(log_formatter)
 
 # Rotating file handler (in data dir)
