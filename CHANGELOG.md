@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [1.4.4] – 2026-03-25
+
+## [1.4.4] – 2026-03-25
 ### Added
 - **German licence-plate validation** — the wheelset form enforces the standard German plate format (`ORT-KK 1234`, optional `E`/`H` suffix) both in the browser (live validity indicator, Bootstrap feedback) and on the server (regex check in `utils.py`). Invalid plates are rejected before saving.
 - Licence plate input auto-uppercases while typing; no silent reformatting of the entered value.
