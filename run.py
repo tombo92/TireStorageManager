@@ -88,22 +88,19 @@ class Runner:
         log.info("BackupManager started.")
 
     def stop_backup(self):
-        if self._backup:
-            log.info("Stopping BackupManager...")
-            stop = getattr(self._backup, "stop", None)
-            join = getattr(self._backup, "join", None)
-            try:
-                if callable(stop):
-                    stop()
-                if callable(join):
-                    join(timeout=10)
-            except Exception as e:
-                log.warning(
-                    "BackupManager stop/join raised: %s",
-                    e, exc_info=True)
-            finally:
-                self._backup = None
-                log.info("BackupManager stopped.")
+        bm = self._backup
+        if bm is None:
+            return
+        self._backup = None
+        log.info("Stopping BackupManager...")
+        try:
+            bm.stop()          # signal the thread to exit its loop
+            bm.join(timeout=5)  # wait briefly for it to finish
+        except Exception as e:
+            log.warning(
+                "BackupManager stop/join raised: %s",
+                e, exc_info=True)
+        log.info("BackupManager stopped.")
 
     # ---- Signal handling (CTRL+C, service stop) ----
     def _handle_signal(self, signum, frame):
@@ -112,8 +109,18 @@ class Runner:
         self._stopping = True
         log.info("Signal %s received. Shutting down...", signum)
         self.stop_backup()
+        if self._server:
+            self._server.close()
 
     def _install_signal_handlers(self):
+        """Install signal handlers for prod mode only.
+
+        In dev mode Flask's reloader manages SIGINT itself — installing
+        a custom handler swallows the KeyboardInterrupt that Werkzeug
+        needs to shut down cleanly, so we skip it.
+        """
+        if self.dev:
+            return
         for s in (signal.SIGINT, signal.SIGTERM):
             try:
                 signal.signal(s, self._handle_signal)
@@ -131,14 +138,36 @@ class Runner:
 
     def _run_dev(self):
         """Development: Flask built-in server with debug & reloader."""
+        # Werkzeug's server thread may raise OSError (WinError 10038) on
+        # Windows when the socket is closed during Ctrl+C shutdown.
+        # Suppress that specific noise via a custom threading excepthook.
+        import threading as _th
+        _orig_excepthook = getattr(_th, "excepthook", None)
+
+        def _quiet_excepthook(args):
+            if (self._stopping
+                    and isinstance(args.exc_value, OSError)
+                    and getattr(args.exc_value, "winerror", None) == 10038):
+                return  # expected during shutdown — ignore
+            if _orig_excepthook:
+                _orig_excepthook(args)
+
+        _th.excepthook = _quiet_excepthook
+
         log.info(
             "Starting Flask dev server on http://%s:%s ...",
             self.host, self.port)
         try:
             self.app.run(
-                host=self.host, port=self.port, debug=True)
+                host=self.host, port=self.port, debug=True,
+                use_reloader=True)
+        except KeyboardInterrupt:
+            pass  # expected
         finally:
+            self._stopping = True
             self.stop_backup()
+            _th.excepthook = _orig_excepthook or _th.excepthook
+            log.info("DEV server stopped.")
 
     def _run_prod(self):
         """Production: Waitress WSGI server (Windows-friendly)."""
@@ -155,10 +184,13 @@ class Runner:
             **kwargs)
         try:
             self._server.run()
+        except KeyboardInterrupt:
+            log.info("KeyboardInterrupt — stopping prod server.")
         finally:
             self.stop_backup()
             log.info("PROD server stopped.")
-            self._server.close()
+            if self._server:
+                self._server.close()
 
 
 # ========================================================
@@ -193,11 +225,26 @@ def main():
     # ── Self-update check (only for frozen EXE, unless --no-update) ──
     if not args.no_update and not args.dev:
         try:
-            updated = check_for_update()
-            if updated:
-                log.info("Update applied — service will restart. "
-                         "Exiting current process.")
-                sys.exit(0)
+            # Respect the auto_update DB setting
+            from tsm.db import SessionLocal
+            from tsm.models import Settings
+            db = SessionLocal()
+            try:
+                s = db.query(Settings).first()
+                auto = s.auto_update if s else True
+            finally:
+                SessionLocal.remove()
+
+            if auto:
+                updated = check_for_update()
+                if updated:
+                    log.info(
+                        "Update applied — service will restart. "
+                        "Exiting current process.")
+                    sys.exit(0)
+            else:
+                log.info("Auto-update disabled in settings — "
+                         "skipping startup update check.")
         except Exception as e:
             log.warning("Self-update check failed: %s", e,
                         exc_info=True)

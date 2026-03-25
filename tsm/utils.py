@@ -11,6 +11,7 @@ Utils: leichter CSRF Schutz
 # ========================================================
 import os
 import sys
+import hmac
 import secrets
 from flask import session, request, abort
 
@@ -29,7 +30,7 @@ def get_csrf_token():
 def validate_csrf():
     token = session.get("_csrf_token")
     form_token = request.form.get("_csrf_token")
-    if not token or not form_token or token != form_token:
+    if not token or not form_token or not hmac.compare_digest(token, form_token):
         abort(400, description="Ungültiges CSRF-Token.")
 
 

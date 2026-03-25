@@ -251,6 +251,75 @@ def _cleanup_old_exe():
 
 
 # ── Public API ───────────────────────────────────────────
+
+# Server-side cache for update info
+# (avoids hammering GitHub on every AJAX poll)
+_update_info_cache: dict | None = None
+_update_info_cache_ts: float = 0.0
+_UPDATE_INFO_TTL = 600  # 10 minutes
+
+
+def get_update_info() -> dict:
+    """
+    Lightweight check: return update availability info without applying.
+
+    Returns a dict:
+        {
+            "update_available": bool,
+            "current_version": str,
+            "remote_version": str | None,
+            "release_notes": str | None,    # markdown body from GitHub
+            "release_url": str | None,       # HTML URL to the release page
+            "frozen": bool,
+        }
+    Result is cached server-side for _UPDATE_INFO_TTL seconds.
+    """
+    global _update_info_cache, _update_info_cache_ts
+
+    now = time.time()
+    if _update_info_cache and (now - _update_info_cache_ts) < _UPDATE_INFO_TTL:
+        return _update_info_cache
+
+    try:
+        from config import VERSION as local_version
+    except ImportError:
+        local_version = "0.0.0"
+
+    result = {
+        "update_available": False,
+        "current_version": local_version,
+        "remote_version": None,
+        "release_notes": None,
+        "release_url": None,
+        "frozen": _is_frozen(),
+    }
+
+    try:
+        release = _fetch_latest_release()
+        if release:
+            tag = release.get("tag_name", "")
+            remote_version = tag.lstrip("vV")
+            result["remote_version"] = remote_version
+            result["release_notes"] = release.get("body") or None
+            result["release_url"] = release.get("html_url") or None
+
+            if _ver_tuple(remote_version) > _ver_tuple(local_version):
+                result["update_available"] = True
+    except Exception as e:
+        log.debug("get_update_info failed: %s", e)
+
+    _update_info_cache = result
+    _update_info_cache_ts = now
+    return result
+
+
+def invalidate_update_cache():
+    """Clear the cached update info so the next call re-fetches."""
+    global _update_info_cache, _update_info_cache_ts
+    _update_info_cache = None
+    _update_info_cache_ts = 0.0
+
+
 def check_for_update() -> bool:
     """
     Check GitHub for a newer release and self-update if available.
