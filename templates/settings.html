@@ -14,8 +14,12 @@
     </div>
     <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary"><i class="bi bi-save2"></i> Speichern</button>
-        <a class="btn btn-outline-secondary" href="{{ url_for('run_backup') }}"><i class="bi bi-hdd-stack"></i> Backup
-            jetzt erstellen</a>
     </div>
+</form>
+<form method="post" action="{{ url_for('run_backup') }}" class="mt-2">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline-secondary">
+        <i class="bi bi-hdd-stack"></i> Backup jetzt erstellen
+    </button>
 </form>
 {% endblock %}
