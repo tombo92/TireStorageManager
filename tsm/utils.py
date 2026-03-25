@@ -4,16 +4,47 @@
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
 """
-Utils: leichter CSRF Schutz
+Utils: leichter CSRF Schutz + Kennzeichen-Validierung
 """
 # ========================================================
 # IMPORTS
 # ========================================================
 import os
+import re
 import sys
 import hmac
 import secrets
 from flask import session, request, abort
+
+
+# ========================================================
+# CONSTANTS
+# ========================================================
+
+# German licence-plate pattern
+# Covers all current formats:
+#   Unterscheidungszeichen (1–3 letters)  e.g. M, AB, MIL, TEG …
+#   Erkennungsbuchstaben  (1–2 letters)   e.g. A, AB
+#   Erkennungsziffern     (1–4 digits)    e.g. 1, 12, 123, 1234
+#   Optional: E suffix (Elektro), H suffix (Historisch)
+#
+# Allowed separators between the three parts: space, hyphen, or none.
+# Examples:
+#   M AB 1234   M-AB-1234   MAB1234
+#   B A 1 H     KA XY 99 E
+#
+# The regex is intentionally liberal on the Unterscheidungszeichen
+# length (1–3) because there are ~500 valid codes and validating
+# them exhaustively is out of scope.  The format itself is enforced.
+_PLATE_RE = re.compile(
+    r"^[A-ZÄÖÜ]{1,3}"        # Unterscheidungszeichen
+    r"[\s\-]?"                 # optional separator
+    r"[A-Z]{1,2}"             # Erkennungsbuchstaben
+    r"[\s\-]?"                 # optional separator
+    r"\d{1,4}"                 # Erkennungsziffern
+    r"(?:[\s\-]?[EH])?$",     # optional E (Elektro) or H (Historisch)
+    re.IGNORECASE,
+)
 
 
 # ========================================================
@@ -37,3 +68,18 @@ def validate_csrf():
 def resource_path(rel_path: str) -> str:
     base = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base, rel_path)
+
+
+def is_valid_license_plate(value: str) -> bool:
+    """Return True if *value* matches the German licence-plate pattern."""
+    return bool(_PLATE_RE.match(value.strip()))
+
+
+def normalize_license_plate(value: str) -> str:
+    """Strip whitespace and upper-case a licence plate value for storage.
+
+    No reformatting is performed — the plate is stored exactly as the user
+    entered it (after uppercasing), so that ``B-JB 123`` stays ``B-JB 123``
+    and is never silently rewritten.
+    """
+    return value.strip().upper()

@@ -11,17 +11,43 @@ The application runs as a **Windows Service** and is accessible from any device 
 ## Features
 
 - 📦 Manage wheel sets with customer name, vehicle, position, and notes
+- 🔢 **German licence-plate validation** — enforces the standard format (`ORT KK 1234`) in the browser and on the server; auto-formats on blur, rejects invalid entries before saving
 - 🗺️ Visual storage position overview with free/occupied status
-- 🔍 Full-text search and filter by season / customer
+- 🔍 Full-text search and filter by customer / vehicle
 - 🌙 **Dark mode** — toggled from Settings, shared across all clients
-- � **Customizable storage positions** — define your own positions from scratch via the Settings UI
-- 🀽� Automatic daily database backups with configurable retention
-- 🔄 Self-update mechanism via GitHub Releases
+- 🗂️ **Customizable storage positions** — define your own positions from scratch via the Settings UI
+- 🔄 Automatic daily database backups with configurable retention
+- ♻️ Self-update mechanism via GitHub Releases
 - 🖥️ Runs as a Windows Service (via [NSSM](https://nssm.cc/))
 - 🖱️ Graphical installer/uninstaller — no Python required on the target machine
 - 🔗 Optional desktop shortcut created during installation
 - 📜 Impressum page with developer info and project links
 - 🔏 Optional EXE code signing (self-signed or CA certificate)
+
+---
+
+## Licence Plate Format
+
+All licence plates must follow the **German standard format**:
+
+```text
+B-TB 3005          → standard plate
+LOS-ZE 123         → standard plate
+M-AB 1234 H        → Oldtimer (Historisch)
+MIL-XY 99 E        → Electric vehicle
+```
+
+| Part | Length | Examples |
+|---|---|---|
+| Unterscheidungszeichen | 1–3 letters | `B`, `LOS`, `MIL` |
+| Erkennungsbuchstaben | 1–2 letters | `A`, `TB`, `ZE` |
+| Erkennungsziffern | 1–4 digits | `1`, `99`, `3005` |
+| Suffix (optional) | `E` or `H` | Electric / Oldtimer |
+
+**Canonical storage format:** `ORT-KK 1234` — hyphen between the two letter groups, space before the digits.
+
+The input field auto-uppercases while typing, auto-formats on blur (inserts canonical hyphen and space), and shows a live ✓/✗ indicator.
+Invalid plates are also rejected on the server before they can be saved.
 
 ---
 
@@ -139,6 +165,55 @@ CI signing is automatic when the `CODE_SIGN_PFX_BASE64` and `CODE_SIGN_PASSWORD`
 ```bash
 pytest tests/ -v --tb=short
 ```
+
+---
+
+## Manual Testing (Smoke Test)
+
+`tools/smoke_test.py` is a self-contained integration test script that runs against a **live application instance** (dev server or built EXE). It covers 10 suites and 39+ checks without needing pytest.
+
+### Quickstart — against the dev server
+
+```bash
+# 1. Start the app in one terminal
+python run.py --dev
+
+# 2. Run the smoke test in another terminal
+python tools/smoke_test.py --base-url http://127.0.0.1:5000
+```
+
+### Against the built EXE
+
+```bash
+python tools/smoke_test.py \
+    --base-url   http://127.0.0.1:59123 \
+    --exe-path   dist\TireStorageManager.exe \
+    --data-dir   C:\Temp\tsm_smoke
+```
+
+The `--exe-path` argument enables two additional suites:
+
+| Suite | What it tests |
+|---|---|
+| **9 – Update + restart** | Triggers `POST /settings/update-now`, waits for the process to respawn, verifies liveness |
+| **10 – Concurrency** | 20 parallel readers, 10 concurrent writers to the same position, 100-user load with latency metrics |
+
+### Test suites
+
+| # | Suite | Key checks |
+|---|---|---|
+| 1 | Core pages | HTTP 200 for every navigable page |
+| 2 | Wheelset CRUD | Create / edit / delete via web UI |
+| 3 | Settings | Read/write, dark-mode toggle, auto-update toggle |
+| 4 | Update check API | `/api/update-check` returns valid JSON |
+| 5 | Positions | Page loads, grid content present |
+| 6 | Backups | Page loads, run backup, export CSV |
+| 7 | Impressum | Page loads, easter-egg element present |
+| 8 | Error handling | 404 on unknown ID, path traversal blocked |
+| 9 | Update + restart | _(EXE mode only)_ |
+| 10 | Concurrency | _(EXE mode only or `--concurrency` flag)_ |
+
+Exit code `0` = all checks passed. Exit code `1` = one or more failures (details printed to stdout).
 
 ---
 
