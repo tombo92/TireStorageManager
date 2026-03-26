@@ -197,9 +197,20 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     # ── Index page ──────────────────────────────────────────────
     "index_title":              {"de": "Übersicht",             "en": "Overview"},
     "index_total":              {"de": "Gesamt",                "en": "Total"},
+    "index_occupied":           {"de": "Belegt",                "en": "Occupied"},
     "index_free":               {"de": "Frei",                  "en": "Free"},
     "index_next_free":          {"de": "Nächste freie Position","en": "Next free position"},
     "index_none":               {"de": "Keine",                 "en": "None"},
+    "stats_occupancy":          {"de": "Auslastung",            "en": "Occupancy"},
+    "stats_positions":          {"de": "Stellplätze",           "en": "Positions"},
+    "stats_recent":             {"de": "Letzte Aktivitäten",    "en": "Recent activity"},
+    "stats_no_activity":        {"de": "Noch keine Aktivitäten","en": "No activity yet"},
+    "stats_top_cars":           {"de": "Häufigste Fahrzeuge",   "en": "Top vehicles"},
+    "stats_no_cars":            {"de": "Noch keine Einträge",   "en": "No entries yet"},
+    "stats_action_create":      {"de": "Angelegt",              "en": "Created"},
+    "stats_action_update":      {"de": "Geändert",              "en": "Updated"},
+    "stats_action_delete":      {"de": "Gelöscht",              "en": "Deleted"},
+    "stats_action_backup":      {"de": "Backup",                "en": "Backup"},
 
     # ── Wheelset list ───────────────────────────────────────────
     "wl_title":         {"de": "Radsätze",              "en": "Wheel Sets"},
