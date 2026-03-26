@@ -18,23 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.5] – 2026-03-25
-
-## [1.4.4] – 2026-03-25
-
-## [1.4.4] – 2026-03-25
+## [1.5.0] – 2026-03-26
 ### Added
-- **German licence-plate validation** — the wheelset form enforces the standard German plate format (`ORT-KK 1234`, optional `E`/`H` suffix) both in the browser (live validity indicator, Bootstrap feedback) and on the server (regex check in `utils.py`). Invalid plates are rejected before saving.
+- **German licence-plate validation** — wheelset form enforces standard German plate format (`ORT-KK 1234`, optional `E`/`H` suffix) in the browser (live validity indicator, Bootstrap feedback) and on the server (`utils.py` regex). Invalid plates are rejected before saving.
 - Licence plate input auto-uppercases while typing; no silent reformatting of the entered value.
 - Delete-confirmation input also auto-uppercases to prevent case mismatches.
-- **CI/CD – all-branch test & build**: `test` and `build` jobs now run on every push and pull-request (all branches). `bump` and `release` are restricted to `master`/`develop` only.
-- **Update Management UI** – Check for updates from the web interface, see release notes, and trigger immediate updates from Settings.
-- Auto-update toggle in Settings (automatic update on service restart at 03:00).
+- **Update Management UI** – check for updates from Settings, see release notes, trigger immediate updates.
+- Auto-update toggle in Settings (runs automatically on service restart at 03:00).
 - Update-available banner on every page with release notes preview.
 - AJAX-based update check with 10-minute server-side cache.
+### Changed
+- **CI/CD pipeline restructured**: order is now `test → build → bump → release`. Version is only bumped after all tests and the full EXE build (including smoke test) pass.
+- Version bump and release restricted to `master`/`develop`; `test` and `build` run on every branch and pull-request.
+- Version bump only triggered when app source files change (`tsm/`, `templates/`, `static/`, `config.py`, `requirements.txt`). CI/tool/doc-only changes no longer produce a new version.
 ### Fixed
 - `subprocess.DETACHED_PROCESS` / `CREATE_NO_WINDOW` are Windows-only constants; guarded with `getattr(subprocess, …, 0)` so tests pass on Linux CI.
-- Smoke test concurrency suite used invalid German plate format (`CC-00 0001`) which caused all writes to be rejected on a clean CI database; replaced with valid plates (`B-CC 0001`…`B-CC 0010`).
+- Smoke test concurrency suite used invalid German plate format (`CC-00 0001`) — replaced with valid plates (`B-CC 0001`…`B-CC 0010`).
+- `CHANGELOG_PATH` and `date` import restored in `tools/bump_version.py` after rebase loss.
 
 ## [1.4.2] – 2026-03-15
 
