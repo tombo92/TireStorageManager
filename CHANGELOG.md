@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4] – 2026-03-26
+
 ## [1.5.3] – 2026-03-26
 ### Added
 - **Extended tire details** (optional feature flag in Settings) — each wheel set can store tyre manufacturer, tyre size, age/DOT, season (Sommer / Winter / Allwetter), rim type (Stahl / Alu), and a free-text exchange note. All columns are nullable; existing records are unaffected.
