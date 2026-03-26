@@ -15,7 +15,7 @@ from flask import Flask
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
-from config import SECRET_KEY, APP_NAME, VERSION
+from config import SECRET_KEY, APP_NAME, VERSION, IS_PRERELEASE
 from tsm.utils import get_csrf_token
 
 
@@ -42,6 +42,7 @@ def create_app():
     app.jinja_env.globals["csrf_token"] = get_csrf_token
     app.jinja_env.globals["APP_VERSION"] = VERSION
     app.jinja_env.globals["APP_NAME"] = APP_NAME
+    app.jinja_env.globals["IS_PRERELEASE"] = IS_PRERELEASE
     app.jinja_env.globals["now"] = lambda: datetime.now(timezone.utc)
 
     # Register routes

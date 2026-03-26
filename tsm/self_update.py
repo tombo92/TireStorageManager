@@ -201,11 +201,11 @@ def _swap_exe(current: Path, new_exe: Path) -> bool:
 
         # Rename running exe out of the way
         os.rename(current, old_backup)
-        log.info("Renamed running EXE → %s", old_backup.name)
+        log.info("Renamed running EXE -> %s", old_backup.name)
 
         # Put new exe in place
         os.rename(new_exe, current)
-        log.info("New EXE installed → %s", current.name)
+        log.info("New EXE installed -> %s", current.name)
         return True
 
     except OSError as e:
@@ -228,12 +228,17 @@ def _restart_service():
         f'timeout /t 3 /nobreak >nul & '
         f'sc.exe start {SERVICE_NAME}"'
     )
-    log.info("Scheduling service restart …")
+    log.info("Scheduling service restart ...")
+    # DETACHED_PROCESS and CREATE_NO_WINDOW are Windows-only constants;
+    # fall back to 0 on other platforms so tests pass on Linux CI.
+    _flags = (
+        getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
     try:
         subprocess.Popen(
             restart_cmd, shell=True,
-            creationflags=subprocess.DETACHED_PROCESS
-            | subprocess.CREATE_NO_WINDOW,
+            creationflags=_flags,
         )
     except Exception as e:
         log.error("Could not schedule restart: %s", e)
@@ -251,6 +256,75 @@ def _cleanup_old_exe():
 
 
 # ── Public API ───────────────────────────────────────────
+
+# Server-side cache for update info
+# (avoids hammering GitHub on every AJAX poll)
+_update_info_cache: dict | None = None
+_update_info_cache_ts: float = 0.0
+_UPDATE_INFO_TTL = 600  # 10 minutes
+
+
+def get_update_info() -> dict:
+    """
+    Lightweight check: return update availability info without applying.
+
+    Returns a dict:
+        {
+            "update_available": bool,
+            "current_version": str,
+            "remote_version": str | None,
+            "release_notes": str | None,    # markdown body from GitHub
+            "release_url": str | None,       # HTML URL to the release page
+            "frozen": bool,
+        }
+    Result is cached server-side for _UPDATE_INFO_TTL seconds.
+    """
+    global _update_info_cache, _update_info_cache_ts
+
+    now = time.time()
+    if _update_info_cache and (now - _update_info_cache_ts) < _UPDATE_INFO_TTL:
+        return _update_info_cache
+
+    try:
+        from config import VERSION as local_version
+    except ImportError:
+        local_version = "0.0.0"
+
+    result = {
+        "update_available": False,
+        "current_version": local_version,
+        "remote_version": None,
+        "release_notes": None,
+        "release_url": None,
+        "frozen": _is_frozen(),
+    }
+
+    try:
+        release = _fetch_latest_release()
+        if release:
+            tag = release.get("tag_name", "")
+            remote_version = tag.lstrip("vV")
+            result["remote_version"] = remote_version
+            result["release_notes"] = release.get("body") or None
+            result["release_url"] = release.get("html_url") or None
+
+            if _ver_tuple(remote_version) > _ver_tuple(local_version):
+                result["update_available"] = True
+    except Exception as e:
+        log.debug("get_update_info failed: %s", e)
+
+    _update_info_cache = result
+    _update_info_cache_ts = now
+    return result
+
+
+def invalidate_update_cache():
+    """Clear the cached update info so the next call re-fetches."""
+    global _update_info_cache, _update_info_cache_ts
+    _update_info_cache = None
+    _update_info_cache_ts = 0.0
+
+
 def check_for_update() -> bool:
     """
     Check GitHub for a newer release and self-update if available.
@@ -272,7 +346,7 @@ def check_for_update() -> bool:
         log.warning("Cannot import config.VERSION — skip update.")
         return False
 
-    log.info("Current version: %s — checking for updates …",
+    log.info("Current version: %s - checking for updates ...",
              local_version)
 
     # ── Primary: check GitHub Releases ──
@@ -307,7 +381,7 @@ def check_for_update() -> bool:
         log.info("Already up-to-date (%s).", local_version)
         return False
 
-    log.info("Update available: %s → %s", local_version, remote_version)
+    log.info("Update available: %s -> %s", local_version, remote_version)
 
     # ── Download: need an .exe asset from a release ──
     if not asset:
@@ -320,7 +394,7 @@ def check_for_update() -> bool:
     download_url = asset.get("browser_download_url") or asset.get("url")
     asset_size = asset.get("size", 0)
     log.info(
-        "Downloading %s (%.1f MB) …",
+        "Downloading %s (%.1f MB) ...",
         ASSET_NAME, asset_size / 1024 / 1024)
 
     # Download to a temp file next to the current EXE
@@ -341,13 +415,13 @@ def check_for_update() -> bool:
             tmp_file.unlink(missing_ok=True)
             return False
 
-        log.info("Download complete. Swapping EXE …")
+        log.info("Download complete. Swapping EXE ...")
         if not _swap_exe(current, tmp_file):
             tmp_file.unlink(missing_ok=True)
             return False
 
         log.info(
-            "✅ Updated %s → %s. Restarting service …",
+            "OK: Updated %s -> %s. Restarting service ...",
             local_version, remote_version)
         _restart_service()
         return True

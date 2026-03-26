@@ -1,4 +1,5 @@
 """Tests for tsm/routes.py — all Flask routes via test client."""
+from unittest.mock import patch
 from tsm.models import WheelSet, Settings, AuditLog
 
 
@@ -144,12 +145,128 @@ class TestSettings:
             "_csrf_token": token,
             "backup_interval_minutes": "30",
             "backup_copies": "5",
+            "dark_mode": "0",
         }, follow_redirects=True)
         assert resp.status_code == 200
         db_session.expire_all()
         s = db_session.query(Settings).first()
         assert s.backup_interval_minutes == 30
         assert s.backup_copies == 5
+
+    def test_post_toggle_dark_mode_on(
+        self, client, seed_settings, db_session
+    ):
+        token = _get_csrf(client)
+        resp = client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            "dark_mode": "1",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.dark_mode is True
+
+    def test_post_toggle_dark_mode_off(
+        self, client, seed_settings, db_session
+    ):
+        seed_settings.dark_mode = True
+        db_session.commit()
+        token = _get_csrf(client)
+        resp = client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            # dark_mode omitted → checkbox unchecked → False
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.dark_mode is False
+
+    def test_dark_mode_in_html(self, client, seed_settings, db_session):
+        """Dark mode injects data-bs-theme into every page."""
+        # Enable dark mode via the settings POST (refreshes the cache)
+        token = _get_csrf(client)
+        client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            "dark_mode": "1",
+        }, follow_redirects=True)
+        resp = client.get("/")
+        assert b'data-bs-theme="dark"' in resp.data
+
+    def test_light_mode_in_html(self, client, seed_settings, db_session):
+        # Ensure dark mode is off via the settings POST
+        token = _get_csrf(client)
+        client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            # dark_mode omitted → checkbox unchecked → False
+        }, follow_redirects=True)
+        resp = client.get("/")
+        assert b'data-bs-theme="light"' in resp.data
+
+
+class TestSettingsPositions:
+    def test_get(self, client, seed_settings):
+        resp = client.get("/settings/positions")
+        assert resp.status_code == 200
+
+    def test_save_custom(self, client, seed_settings, db_session):
+        token = _get_csrf(client)
+        resp = client.post("/settings/positions", data={
+            "_csrf_token": token,
+            "action": "save",
+            "positions_text": "POS-A\nPOS-B\nPOS-C",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.custom_positions_json is not None
+        import json
+        saved = json.loads(s.custom_positions_json)
+        assert saved == ["POS-A", "POS-B", "POS-C"]
+
+    def test_save_empty_rejected(self, client, seed_settings):
+        token = _get_csrf(client)
+        resp = client.post("/settings/positions", data={
+            "_csrf_token": token,
+            "action": "save",
+            "positions_text": "",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        # Should flash an error, positions_json stays None
+        assert b"Mindestens eine Position" in resp.data
+
+    def test_reset(self, client, seed_settings, db_session):
+        seed_settings.custom_positions_json = '["X","Y"]'
+        db_session.commit()
+        token = _get_csrf(client)
+        resp = client.post("/settings/positions", data={
+            "_csrf_token": token,
+            "action": "reset",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.custom_positions_json is None
+
+
+class TestImpressum:
+    def test_get(self, client):
+        resp = client.get("/impressum")
+        assert resp.status_code == 200
+        assert b"Tom Brandherm" in resp.data
+        assert b"github.com/tombo92" in resp.data
+
+    def test_has_easter_egg_container(self, client):
+        resp = client.get("/impressum")
+        assert b"easterEgg" in resp.data
+        assert b"Konami" in resp.data or b"SEQ" in resp.data
 
 
 class TestBackups:
@@ -163,6 +280,35 @@ class TestFavicon:
         resp = client.get("/favicon.ico")
         # May be 200 (file exists) or 404 (no file in test)
         assert resp.status_code in (200, 404)
+        resp.close()
+
+
+class TestSplashScreen:
+    def test_splash_present_on_index(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'id="splashScreen"' in html
+
+    def test_splash_has_tire_svg(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'class="splash-tire"' in html
+
+    def test_splash_has_progress_bar(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'splash-progress-fill' in html
+
+    def test_splash_shows_app_name(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'splash-title' in html
+
+    def test_splash_present_on_every_page(self, client):
+        """Splash is in base.html, so it should appear on all pages."""
+        for url in ["/wheelsets", "/positions", "/settings"]:
+            resp = client.get(url)
+            assert 'id="splashScreen"' in resp.data.decode(), f"Missing on {url}"
 
 
 # ── Helper ─────────────────────────────────────────────
@@ -173,3 +319,201 @@ def _get_csrf(client):
         tok = secrets.token_urlsafe(16)
         sess["_csrf_token"] = tok
     return tok
+
+
+# =========================================================
+#  Update feature tests
+# =========================================================
+class TestApiUpdateCheck:
+    """Tests for /api/update-check endpoint."""
+
+    def test_get_returns_json(self, client):
+        fake = {
+            "update_available": False,
+            "current_version": "1.0.0",
+            "remote_version": None,
+            "release_notes": None,
+            "release_url": None,
+            "frozen": False,
+        }
+        with patch("tsm.routes.get_update_info", return_value=fake):
+            resp = client.get("/api/update-check")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["update_available"] is False
+
+    def test_get_update_available(self, client):
+        fake = {
+            "update_available": True,
+            "current_version": "1.0.0",
+            "remote_version": "2.0.0",
+            "release_notes": "Big update",
+            "release_url": "https://example.com",
+            "frozen": False,
+        }
+        with patch("tsm.routes.get_update_info", return_value=fake):
+            resp = client.get("/api/update-check")
+        data = resp.get_json()
+        assert data["update_available"] is True
+        assert data["remote_version"] == "2.0.0"
+        assert data["release_notes"] == "Big update"
+
+    def test_post_forces_refresh(self, client):
+        fake = {
+            "update_available": False,
+            "current_version": "1.0.0",
+            "remote_version": None,
+            "release_notes": None,
+            "release_url": None,
+            "frozen": False,
+        }
+        token = _get_csrf(client)
+        with patch("tsm.routes.invalidate_update_cache") as m_inv, \
+             patch("tsm.routes.get_update_info", return_value=fake):
+            resp = client.post("/api/update-check", data={
+                "_csrf_token": token,
+            })
+        assert resp.status_code == 200
+        m_inv.assert_called_once()
+
+
+class TestUpdateNow:
+    """Tests for /settings/update-now endpoint."""
+
+    def test_not_frozen_shows_info_flash(self, client, seed_settings):
+        token = _get_csrf(client)
+        with patch("tsm.routes._is_frozen", return_value=False):
+            resp = client.post("/settings/update-now", data={
+                "_csrf_token": token,
+            }, follow_redirects=True)
+        assert resp.status_code == 200
+        assert ("installierte" in resp.data.decode()
+                or "EXE" in resp.data.decode())
+
+    def test_frozen_update_success(self, client, seed_settings):
+        token = _get_csrf(client)
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes.check_for_update", return_value=True):
+            resp = client.post("/settings/update-now", data={
+                "_csrf_token": token,
+            }, follow_redirects=True)
+        assert resp.status_code == 200
+        assert "installiert" in resp.data.decode()
+
+    def test_frozen_no_update(self, client, seed_settings):
+        token = _get_csrf(client)
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes.check_for_update",
+                   return_value=False):
+            resp = client.post("/settings/update-now", data={
+                "_csrf_token": token,
+            }, follow_redirects=True)
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert ("Kein Update" in html
+                or "fehlgeschlagen" in html)
+
+    def test_frozen_update_exception(self, client, seed_settings):
+        token = _get_csrf(client)
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes.check_for_update",
+                   side_effect=RuntimeError("boom")):
+            resp = client.post("/settings/update-now", data={
+                "_csrf_token": token,
+            }, follow_redirects=True)
+        assert resp.status_code == 200
+        assert "fehlgeschlagen" in resp.data.decode()
+
+
+class TestSettingsAutoUpdate:
+    """Tests for auto_update setting persistence."""
+
+    def test_auto_update_default_true(self, client, seed_settings,
+                                      db_session):
+        s = db_session.query(Settings).first()
+        assert s.auto_update is True
+
+    def test_toggle_auto_update_off(self, client, seed_settings,
+                                    db_session):
+        token = _get_csrf(client)
+        resp = client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            "dark_mode": "0",
+            # auto_update omitted → unchecked → False
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.auto_update is False
+
+    def test_toggle_auto_update_on(self, client, seed_settings,
+                                   db_session):
+        # First disable
+        token = _get_csrf(client)
+        client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+        }, follow_redirects=True)
+        # Then enable
+        token = _get_csrf(client)
+        resp = client.post("/settings", data={
+            "_csrf_token": token,
+            "backup_interval_minutes": "60",
+            "backup_copies": "10",
+            "auto_update": "1",
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        db_session.expire_all()
+        s = db_session.query(Settings).first()
+        assert s.auto_update is True
+
+
+class TestUpdateBanner:
+    """Tests for the update notification banner in base.html."""
+
+    def test_banner_div_present(self, client):
+        resp = client.get("/")
+        html = resp.data.decode()
+        assert 'id="updateBanner"' in html
+
+    def test_banner_present_on_every_page(self, client):
+        for url in ["/", "/wheelsets", "/positions", "/settings"]:
+            resp = client.get(url)
+            html = resp.data.decode()
+            assert 'id="updateBanner"' in html, \
+                f"Missing on {url}"
+
+
+class TestUpdateSettingsUI:
+    """Tests for the update card on the settings page."""
+
+    def test_settings_has_update_card(self, client, seed_settings):
+        resp = client.get("/settings")
+        html = resp.data.decode()
+        assert 'id="update-card"' in html
+        assert "Updates" in html
+
+    def test_settings_has_auto_update_switch(
+        self, client, seed_settings
+    ):
+        resp = client.get("/settings")
+        html = resp.data.decode()
+        assert 'id="autoUpdateSwitch"' in html
+
+    def test_settings_has_check_button(
+        self, client, seed_settings
+    ):
+        resp = client.get("/settings")
+        html = resp.data.decode()
+        assert 'id="btnCheckUpdate"' in html
+
+    def test_settings_has_version_display(
+        self, client, seed_settings
+    ):
+        resp = client.get("/settings")
+        html = resp.data.decode()
+        from config import VERSION
+        assert f"v{VERSION}" in html

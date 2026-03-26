@@ -9,7 +9,7 @@ DB
 # ========================================================
 # IMPORTS
 # ========================================================
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 # --------------------------------------------------------
 # Local Imports
@@ -50,3 +50,31 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 # Create tables
 # ========================================================
 Base.metadata.create_all(bind=engine)
+
+
+# ========================================================
+# Lightweight schema migration (add new columns to existing DBs)
+# ========================================================
+def _migrate():
+    """Add columns that may be missing from older database versions."""
+    insp = inspect(engine)
+    existing = {c["name"] for c in insp.get_columns("settings")}
+    with engine.begin() as conn:
+        if "dark_mode" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN dark_mode BOOLEAN NOT NULL DEFAULT 0"
+            ))
+        if "custom_positions_json" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN custom_positions_json TEXT"
+            ))
+        if "auto_update" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN auto_update BOOLEAN NOT NULL DEFAULT 1"
+            ))
+
+
+_migrate()

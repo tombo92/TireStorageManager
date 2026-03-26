@@ -21,6 +21,7 @@ Usage:
 import argparse
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 
@@ -28,6 +29,7 @@ from pathlib import Path
 # GLOBALS
 # ========================================================
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.py"
+CHANGELOG_PATH = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
 VERSION_RX = re.compile(
     r'(^\s*VERSION\s*=\s*")(\d+)\.(\d+)\.(\d+)(".*$)',
     re.MULTILINE,
@@ -37,6 +39,24 @@ VERSION_RX = re.compile(
 # ========================================================
 # FUNCTIONS
 # ========================================================
+def _stamp_changelog(new_version: str):
+    """Move [Unreleased] entries into a versioned section."""
+    if not CHANGELOG_PATH.exists():
+        return
+    text = CHANGELOG_PATH.read_text(encoding="utf-8")
+
+    today = date.today().isoformat()  # YYYY-MM-DD
+    new_heading = (
+        f"## [Unreleased]\n\n"
+        f"## [{new_version}] – {today}"
+    )
+    # Replace the first "## [Unreleased]" with two headings:
+    # a fresh empty [Unreleased] + the new versioned section
+    updated = text.replace("## [Unreleased]", new_heading, 1)
+    if updated != text:
+        CHANGELOG_PATH.write_text(updated, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bump VERSION in config.py")
     parser.add_argument(

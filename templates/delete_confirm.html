@@ -15,8 +15,11 @@
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
                 <label class="form-label">Zur Bestätigung geben Sie das Kennzeichen ein:</label>
-                <input type="text" class="form-control" name="confirm_plate" required
-                    placeholder="Kennzeichen eingeben">
+                <input type="text" class="form-control text-uppercase font-monospace"
+                    name="confirm_plate" id="confirm_plate" required
+                    autocomplete="off" spellcheck="false" maxlength="15"
+                    placeholder="{{ w.license_plate }}">
+                <div class="form-text">Kennzeichen exakt wie angezeigt eingeben: <strong>{{ w.license_plate }}</strong></div>
             </div>
             <button class="btn btn-danger"><i class="bi bi-trash"></i> Endgültig löschen</button>
             <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">Abbrechen</a>
