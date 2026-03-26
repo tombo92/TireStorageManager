@@ -494,6 +494,12 @@ class InstallerApp(tk.Tk):
 class ProgressWindow(tk.Toplevel):
     """Modal loading screen with animated progress bar and log."""
 
+    # Bounce animation constants
+    _BOUNCE_FRAMES = 20        # steps per up/down cycle
+    _BOUNCE_HEIGHT = 18        # pixels of vertical travel
+    _BOUNCE_INTERVAL_MS = 30   # ms per frame  (~33 fps)
+    _IMG_SIZE = 64             # px to display the avatar at
+
     def __init__(self, parent: InstallerApp,
                  install_dir: Path, data_dir: Path, port: int,
                  display_name: str, secret_key: str,
@@ -508,22 +514,41 @@ class ProgressWindow(tk.Toplevel):
         self.shortcut = shortcut
 
         self.title("Installation läuft …")
-        self.geometry("660x400")
+        self.geometry("660x430")
         self.resizable(False, False)
         self.configure(bg=BG_DARK)
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", lambda: None)  # block close
 
+        self._bounce_y = 0
+        self._bounce_direction = 1
+        self._bounce_frame = 0
+        self._avatar_label: Optional[tk.Label] = None
+        self._avatar_image = None  # keep reference to prevent GC
+
         self._build()
+        self._load_avatar()
         self._start_worker()
 
     def _build(self):
+        # ── Top row: title + bouncing avatar ────────────────────────
+        top_row = tk.Frame(self, bg=BG_DARK)
+        top_row.pack(fill="x", padx=20, pady=(18, 6))
+
         tk.Label(
-            self, text=f"{self.display_name} wird installiert …",
+            top_row, text=f"{self.display_name} wird installiert …",
             bg=BG_DARK, fg=FG_TEXT,
             font=("Segoe UI", 13, "bold"),
-        ).pack(anchor="w", padx=20, pady=(18, 6))
+        ).pack(side="left")
+
+        # Canvas for the bouncing avatar (fixed size, transparent bg)
+        avatar_size = self._IMG_SIZE + self._BOUNCE_HEIGHT + 4
+        self._avatar_canvas = tk.Canvas(
+            top_row, width=self._IMG_SIZE, height=avatar_size,
+            bg=BG_DARK, highlightthickness=0,
+        )
+        self._avatar_canvas.pack(side="right")
 
         # Progress bar
         style = ttk.Style(self)
@@ -564,6 +589,56 @@ class ProgressWindow(tk.Toplevel):
         self.btn_frame = tk.Frame(self, bg=BG_DARK)
         self.btn_frame.pack(fill="x", padx=20, pady=(0, 14))
 
+    # ---- Avatar bounce animation ----
+    def _load_avatar(self):
+        """Load assets/dev.png and start the bounce loop."""
+        # Resolve path: works both from source and inside a PyInstaller EXE.
+        base = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)
+        img_path = Path(base) / "assets" / "dev.png"
+        if not img_path.exists():
+            return  # silently skip if asset is missing
+        try:
+            self._avatar_image = tk.PhotoImage(file=str(img_path))
+            # Scale down to _IMG_SIZE using subsample if the image is larger
+            orig_w = self._avatar_image.width()
+            orig_h = self._avatar_image.height()
+            factor = max(1, max(orig_w, orig_h) // self._IMG_SIZE)
+            if factor > 1:
+                self._avatar_image = self._avatar_image.subsample(
+                    factor, factor)
+        except tk.TclError:
+            return  # unsupported format / Tk too old
+        self._bounce_tick()
+
+    def _bounce_tick(self):
+        """Advance one frame of the sinusoidal bounce."""
+        import math
+        canvas = self._avatar_canvas
+        canvas.delete("avatar")
+        t = self._bounce_frame / self._BOUNCE_FRAMES
+        # sin curve: 0 → top, 1 → bottom of travel
+        offset = int(math.sin(t * math.pi) * self._BOUNCE_HEIGHT)
+        canvas_h = self._IMG_SIZE + self._BOUNCE_HEIGHT + 4
+        y = (canvas_h - self._IMG_SIZE) - offset   # higher offset = higher up
+        canvas.create_image(
+            self._IMG_SIZE // 2, y,
+            image=self._avatar_image, anchor="n", tags="avatar",
+        )
+        # Shadow ellipse at the bottom — shrinks as avatar rises
+        shadow_scale = 1.0 - (offset / self._BOUNCE_HEIGHT) * 0.6
+        sw = int(self._IMG_SIZE * 0.5 * shadow_scale)
+        sx = self._IMG_SIZE // 2
+        sy = canvas_h - 6
+        canvas.create_oval(
+            sx - sw, sy - 3, sx + sw, sy + 3,
+            fill="#0f172a", outline="", tags="avatar",
+        )
+        self._bounce_frame = (
+            (self._bounce_frame + 1) % (self._BOUNCE_FRAMES * 2)
+        )
+        self._bounce_job = self.after(
+            self._BOUNCE_INTERVAL_MS, self._bounce_tick)
+
     # ---- Logging helpers (thread-safe via after) ----
     def _log(self, line: str):
         self.after(0, self._log_ui, line)
@@ -602,6 +677,8 @@ class ProgressWindow(tk.Toplevel):
         ).pack(side="right")
 
     def _close(self):
+        if hasattr(self, "_bounce_job"):
+            self.after_cancel(self._bounce_job)
         try:
             self.grab_release()
         except Exception:
