@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 from flask import (
     request, redirect, url_for, flash, render_template, abort,
-    send_from_directory, jsonify
+    send_from_directory, jsonify, g
 )
 from sqlalchemy.exc import IntegrityError
 
@@ -35,6 +35,7 @@ from tsm.utils import (
     is_valid_license_plate,
     normalize_license_plate,
 )
+from tsm.i18n import gettext as _
 # for route use (CSV)
 from tsm.backup_manager import export_csv_snapshot
 from tsm.self_update import (
@@ -140,27 +141,23 @@ def register_routes(app):
 
                 if not (customer_name and license_plate and car_type and
                         storage_position):
-                    flash("Bitte alle Pflichtfelder ausfüllen.", "error")
+                    flash(_("fill_required_fields"), "error")
                     return redirect(url_for("create_wheelset"))
 
                 if not is_valid_license_plate(license_plate):
-                    flash(
-                        "Ungültiges Kennzeichen. "
-                        "Bitte deutsches Format verwenden, z. B. M AB 1234.",
-                        "error",
-                    )
+                    flash(_("invalid_plate"), "error")
                     return redirect(url_for("create_wheelset"))
 
                 if not is_valid_position(storage_position):
-                    flash("Ungültige Position.", "error")
+                    flash(_("invalid_position"), "error")
                     return redirect(url_for("create_wheelset"))
 
                 if not is_usable_position(db, storage_position):
-                    flash("Position ist gesperrt und kann nicht verwendet werden.", "error")
+                    flash(_("position_disabled"), "error")
                     return redirect(url_for("create_wheelset"))
 
                 if storage_position in occupied:
-                    flash("Position ist bereits belegt.", "error")
+                    flash(_("position_occupied"), "error")
                     return redirect(url_for("create_wheelset"))
 
                 w = WheelSet(
@@ -175,8 +172,7 @@ def register_routes(app):
                     db.commit()
                 except IntegrityError:
                     db.rollback()
-                    flash("Position bereits belegt oder Datenkonflikt.",
-                          "error")
+                    flash(_("position_conflict"), "error")
                     return redirect(url_for("create_wheelset"))
 
                 log_action(db,
@@ -184,7 +180,7 @@ def register_routes(app):
                            w.id,
                            f"Angelegt @ {w.storage_position} für " +
                            f"{w.customer_name} [{w.license_plate}]")
-                flash("Radsatz wurde angelegt.", "success")
+                flash(_("wheelset_created"), "success")
                 return redirect(url_for("list_wheelsets"))
 
             return render_template("wheelset_form.html", w=None, editing=False,
@@ -227,31 +223,26 @@ def register_routes(app):
 
                 if not (customer_name and license_plate and car_type and
                         storage_position):
-                    flash("Bitte alle Pflichtfelder ausfüllen.", "error")
+                    flash(_("fill_required_fields"), "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
 
                 if not is_valid_license_plate(license_plate):
-                    flash(
-                        "Ungültiges Kennzeichen. "
-                        "Bitte deutsches Format verwenden, z. B. M AB 1234.",
-                        "error",
-                    )
+                    flash(_("invalid_plate"), "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
 
                 if not is_valid_position(storage_position):
-                    flash("Ungültige Position.", "error")
+                    flash(_("invalid_position"), "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
 
                 if storage_position in occupied:
-                    flash("Position ist bereits belegt.", "error")
+                    flash(_("position_occupied"), "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
 
                 # Allow keeping current position even if disabled after assignment;
                 # block switching to any disabled position
                 if ((storage_position != w.storage_position) and
-                    not is_usable_position(db, storage_position)):
-                    flash("Zielposition ist gesperrt und kann nicht verwendet werden.",
-                          "error")
+                        not is_usable_position(db, storage_position)):
+                    flash(_("target_position_disabled"), "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
 
                 old_pos = w.storage_position
@@ -265,12 +256,12 @@ def register_routes(app):
                     db.commit()
                 except IntegrityError:
                     db.rollback()
-                    flash("Datenkonflikt beim Speichern.", "error")
+                    flash(_("data_conflict"), "error")
                     return redirect(url_for("edit_wheelset", wid=wid))
 
                 log_action(db, "update", w.id,
                            f"Geändert: {old_pos} -> {w.storage_position}")
-                flash("Radsatz wurde aktualisiert.", "success")
+                flash(_("wheelset_updated"), "success")
                 return redirect(url_for("list_wheelsets"))
 
             return render_template("wheelset_form.html", w=w, editing=True,
@@ -302,15 +293,14 @@ def register_routes(app):
             confirm_plate = (
                 request.form.get("confirm_plate", "") or "").strip()
             if confirm_plate != w.license_plate:
-                flash("Bestätigung fehlgeschlagen (Kennzeichen stimmt nicht).",
-                      "error")
+                flash(_("confirm_failed"), "error")
                 return redirect(url_for("delete_wheelset_confirm", wid=wid))
 
             pos = w.storage_position
             db.delete(w)
             db.commit()
             log_action(db, "delete", wid, f"Gelöscht @ {pos}")
-            flash("Radsatz wurde sicher gelöscht.", "success")
+            flash(_("wheelset_deleted"), "success")
             return redirect(url_for("list_wheelsets"))
         finally:
             SessionLocal.remove()
@@ -350,18 +340,16 @@ def register_routes(app):
                     s.auto_update = (
                         request.form.get("auto_update") == "1"
                     )
+                    from tsm.i18n import SUPPORTED_LOCALES
+                    lang = request.form.get("language", "de")
+                    s.language = lang if lang in SUPPORTED_LOCALES else "de"
                     db.commit()
+                    g._tsm_locale = s.language
                     _refresh_dark_mode()
-                    flash(
-                        "Einstellungen gespeichert.",
-                        "success",
-                    )
+                    flash(_("settings_saved"), "success")
                 except Exception:
                     db.rollback()
-                    flash(
-                        "Fehler beim Speichern.",
-                        "error",
-                    )
+                    flash(_("settings_error"), "error")
             return render_template(
                 "settings.html", s=s, active="settings")
         finally:
@@ -382,10 +370,7 @@ def register_routes(app):
                 action = request.form.get("action")
                 if action == "reset":
                     reset_custom_positions(db)
-                    flash(
-                        "Positionen auf Standard zurückgesetzt.",
-                        "success",
-                    )
+                    flash(_("positions_reset"), "success")
                     return redirect(
                         url_for("settings_positions"))
                 if action == "save":
@@ -397,19 +382,11 @@ def register_routes(app):
                         if ln.strip()
                     ]
                     if not lines:
-                        flash(
-                            "Mindestens eine Position "
-                            "erforderlich.",
-                            "error",
-                        )
+                        flash(_("positions_min_one"), "error")
                         return redirect(
                             url_for("settings_positions"))
                     save_custom_positions(db, lines)
-                    flash(
-                        f"{len(lines)} Positionen "
-                        "gespeichert.",
-                        "success",
-                    )
+                    flash(_("positions_saved", n=len(lines)), "success")
                     return redirect(
                         url_for("settings_positions"))
             return render_template(
@@ -469,9 +446,9 @@ def register_routes(app):
         validate_csrf()
         try:
             export_csv_snapshot()
-            flash("CSV-Export wurde erstellt.", "success")
+            flash(_("csv_created"), "success")
         except Exception as e:
-            flash(f"CSV-Export fehlgeschlagen: {e}", "error")
+            flash(_("csv_failed", e=e), "error")
         return redirect(url_for("backups"))
 
     # We won't start BackupManager here to avoid duplicate threads.
@@ -485,9 +462,9 @@ def register_routes(app):
         try:
             mgr = BackupManager(engine, BACKUP_DIR)
             mgr.perform_backup()
-            flash("Backup wurde erstellt.", "success")
+            flash(_("backup_created"), "success")
         except Exception as e:
-            flash(f"Backup fehlgeschlagen: {e}", "error")
+            flash(_("backup_failed", e=e), "error")
         return redirect(url_for("backups"))
 
     @app.route("/favicon.ico")
@@ -517,28 +494,16 @@ def register_routes(app):
         """Trigger an immediate update (frozen EXE only)."""
         validate_csrf()
         if not _is_frozen():
-            flash(
-                "Update kann nur in der installierten "
-                "Version (EXE) durchgeführt werden.",
-                "info",
-            )
+            flash(_("update_exe_only"), "info")
             return redirect(url_for("settings"))
 
         try:
             updated = check_for_update()
             if updated:
-                flash(
-                    "Update wurde installiert — der "
-                    "Dienst wird neu gestartet.",
-                    "success",
-                )
+                flash(_("update_installed"), "success")
             else:
-                flash(
-                    "Kein Update verfügbar oder "
-                    "Update fehlgeschlagen.",
-                    "info",
-                )
+                flash(_("update_none"), "info")
         except Exception as e:
-            flash(f"Update fehlgeschlagen: {e}", "error")
+            flash(_("update_failed", e=e), "error")
 
         return redirect(url_for("settings"))

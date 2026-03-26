@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de" data-bs-theme="{{ 'dark' if dark_mode else 'light' }}">
+<html lang="{{ get_locale() }}" data-bs-theme="{{ 'dark' if dark_mode else 'light' }}">
 <head>
     <meta charset="utf-8">
     <title>{{ APP_NAME }} – v{{ APP_VERSION }}</title>
@@ -28,19 +28,19 @@
             <div class="collapse navbar-collapse" id="nbar">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     <li class="nav-item"><a class="nav-link {% if active=='wheelsets' %}active{% endif %}"
-                            href="{{ url_for('list_wheelsets') }}"><i class="bi bi-list-ul me-1"></i> Radsätze</a></li>
+                            href="{{ url_for('list_wheelsets') }}"><i class="bi bi-list-ul me-1"></i> {{ _("nav_wheelsets") }}</a></li>
                     <li class="nav-item"><a class="nav-link {% if active=='positions' %}active{% endif %}"
-                            href="{{ url_for('positions') }}"><i class="bi bi-grid-3x3-gap me-1"></i> Positionen</a>
+                            href="{{ url_for('positions') }}"><i class="bi bi-grid-3x3-gap me-1"></i> {{ _("nav_positions") }}</a>
                     </li>
                     <li class="nav-item"><a class="nav-link {% if active=='backups' %}active{% endif %}"
-                            href="{{ url_for('backups') }}"><i class="bi bi-hdd-network me-1"></i> Backups</a></li>
+                            href="{{ url_for('backups') }}"><i class="bi bi-hdd-network me-1"></i> {{ _("nav_backups") }}</a></li>
                     <li class="nav-item"><a class="nav-link {% if active=='settings' %}active{% endif %}"
-                            href="{{ url_for('settings') }}"><i class="bi bi-gear me-1"></i> Einstellungen</a></li>
+                            href="{{ url_for('settings') }}"><i class="bi bi-gear me-1"></i> {{ _("nav_settings") }}</a></li>
                     <li class="nav-item"><a class="nav-link {% if active=='impressum' %}active{% endif %}"
-                            href="{{ url_for('impressum') }}"><i class="bi bi-info-circle me-1"></i> Impressum</a></li>
+                            href="{{ url_for('impressum') }}"><i class="bi bi-info-circle me-1"></i> {{ _("nav_impressum") }}</a></li>
                 </ul>
                 <form class="d-flex" role="search" method="get" action="{{ url_for('list_wheelsets') }}">
-                    <input class="form-control me-2" type="search" placeholder="Suche (Name, Kennzeichen, Fahrzeug)"
+                    <input class="form-control me-2" type="search" placeholder="{{ _('search_placeholder') }}"
                         aria-label="Suche" name="q" value="{{ request.args.get('q','') }}">
                     <button class="btn btn-outline-light" type="submit"><i class="bi bi-search"></i></button>
                 </form>
@@ -70,13 +70,13 @@
         <!-- Update notification banner (populated via AJAX) -->
         <div id="updateBanner" class="alert alert-info alert-dismissible fade d-none" role="alert">
             <i class="bi bi-cloud-download me-1"></i>
-            <strong>Neue Version <span id="bannerRemoteVersion"></span> verfügbar!</strong>
+            <strong>{{ _("banner_new_version") }} <span id="bannerRemoteVersion"></span> {{ _("banner_available") }}</strong>
             <span id="bannerAutoMsg"></span>
             <a id="bannerReleaseLink" href="#" target="_blank" class="alert-link ms-2 d-none">
-                <i class="bi bi-box-arrow-up-right"></i> Release-Seite
+                <i class="bi bi-box-arrow-up-right"></i> {{ _("banner_release_page") }}
             </a>
             <a href="{{ url_for('settings') }}#update-card" class="alert-link ms-2">
-                <i class="bi bi-gear"></i> Einstellungen
+                <i class="bi bi-gear"></i> {{ _("banner_to_settings") }}
             </a>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -92,7 +92,7 @@
     <div id="idleOverlay" data-app-name="{{ APP_NAME }}">
         <div class="idle-title"></div>
         <div class="idle-message"></div>
-        <div class="idle-hint">Maus bewegen oder Taste drücken zum Fortfahren …</div>
+        <div class="idle-hint">{{ _("idle_hint") }}</div>
     </div>
 
     <!-- Splash screen (first visit per session) -->
@@ -143,7 +143,7 @@
                 <div class="splash-dust splash-dust-3"></div>
             </div>
             <h1 class="splash-title">{{ APP_NAME }}</h1>
-            <p class="splash-subtitle">Datenbank wird geladen …</p>
+            <p class="splash-subtitle">{{ _("splash_loading") }}</p>
             <div class="splash-progress-bar">
                 <div class="splash-progress-fill"></div>
             </div>

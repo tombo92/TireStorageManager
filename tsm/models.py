@@ -60,6 +60,7 @@ class Settings(Base):
     backup_copies = Column(Integer, nullable=False, default=10)
     dark_mode = Column(Boolean, nullable=False, default=False)
     auto_update = Column(Boolean, nullable=False, default=True)
+    language = Column(String(10), nullable=False, default="de")
     custom_positions_json = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc),
