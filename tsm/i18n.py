@@ -225,6 +225,14 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "wl_no_results":    {"de": "Keine Radsätze gefunden.", "en": "No wheel sets found."},
     "wl_edit":          {"de": "Bearbeiten",            "en": "Edit"},
     "wl_delete":        {"de": "Löschen",               "en": "Delete"},
+    "wl_overdue_hint": {
+        "de": "Reifenwechsel überfällig! "
+              "Jan–Apr: Sommerreifen sollten bis Dezember abgeholt sein. "
+              "Jul–Sep: Winterreifen sollten bis Juni abgeholt sein.",
+        "en": "Tyre exchange overdue! "
+              "Jan–Apr: summer tyres should have been collected by December. "
+              "Jul–Sep: winter tyres should have been collected by June.",
+    },
 
     # ── Wheelset form ───────────────────────────────────────────
     "wf_title_new":     {"de": "Neuer Radsatz",         "en": "New Wheel Set"},
@@ -244,6 +252,40 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "wf_note":          {"de": "Notiz (optional)",      "en": "Note (optional)"},
     "wf_save":          {"de": "Speichern",             "en": "Save"},
     "wf_cancel":        {"de": "Abbrechen",             "en": "Cancel"},
+    # Extended tire detail fields
+    "wf_tire_details_section": {
+        "de": "Reifendaten (optional)",
+        "en": "Tire details (optional)",
+    },
+    "wf_tire_manufacturer": {
+        "de": "Hersteller",
+        "en": "Manufacturer",
+    },
+    "wf_tire_size": {
+        "de": "Größe (z. B. 205/55 R16)",
+        "en": "Size (e.g. 205/55 R16)",
+    },
+    "wf_tire_age": {
+        "de": "Alter / DOT (z. B. 2021)",
+        "en": "Age / DOT (e.g. 2021)",
+    },
+    "wf_season": {
+        "de": "Saison",
+        "en": "Season",
+    },
+    "wf_season_sommer": {"de": "Sommer",       "en": "Summer"},
+    "wf_season_winter": {"de": "Winter",        "en": "Winter"},
+    "wf_season_allwetter": {"de": "Allwetter",  "en": "All-season"},
+    "wf_rim_type": {
+        "de": "Felgenart",
+        "en": "Rim type",
+    },
+    "wf_rim_stahl": {"de": "Stahlfelge",  "en": "Steel rim"},
+    "wf_rim_alu":   {"de": "Alufelge",    "en": "Alloy rim"},
+    "wf_exchange_note": {
+        "de": "Hinweis für nächsten Wechsel (optional)",
+        "en": "Note for next exchange (optional)",
+    },
 
     # ── Delete confirmation ──────────────────────────────────────
     "del_title":        {"de": "Radsatz löschen",       "en": "Delete Wheel Set"},
@@ -319,6 +361,34 @@ _CATALOGUE: dict[str, dict[str, str]] = {
 
     # ── Splash / idle ─────────────────────────────────────────────
     "splash_loading":   {"de": "Datenbank wird geladen …", "en": "Loading database …"},
+
+    # ── Tire details / seasonal settings ─────────────────────────
+    "settings_tire_details_title": {
+        "de": "Erweiterte Reifendaten",
+        "en": "Extended Tire Details",
+    },
+    "settings_enable_tire_details": {
+        "de": "Erweiterte Reifendaten erfassen",
+        "en": "Capture extended tire details",
+    },
+    "settings_enable_tire_details_hint": {
+        "de": "Aktiviert zusätzliche Felder: Reifentyp (Hersteller, Größe, "
+              "Alter), Saison, Felgenart und Wechselhinweis.",
+        "en": "Enables additional fields: tyre type (manufacturer, size, "
+              "age), season, rim type and exchange note.",
+    },
+    "settings_enable_seasonal_tracking": {
+        "de": "Saisonale Radverwaltung",
+        "en": "Seasonal wheel tracking",
+    },
+    "settings_enable_seasonal_tracking_hint": {
+        "de": "Erlaubt mehrere Radsätze pro Kunde und erfasst "
+              "Rad-Wechsel mit Historie und Statistiken. "
+              "Erfordert 'Erweiterte Reifendaten'.",
+        "en": "Allows multiple wheel sets per customer and tracks "
+              "wheel exchanges with history and stats. "
+              "Requires 'Extended Tire Details'.",
+    },
     "idle_hint": {
         "de": "Maus bewegen oder Taste drücken zum Fortfahren …",
         "en": "Move the mouse or press a key to continue …",

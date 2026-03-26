@@ -13,6 +13,8 @@
             <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
             <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
             <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
             <div class="form-check form-switch fs-5">
                 <input class="form-check-input" type="checkbox" role="switch"
                        id="darkModeSwitch" name="dark_mode" value="1"
@@ -30,6 +32,8 @@
             <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
             <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
             <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
             <label class="form-label fw-semibold" for="languageSelect">
                 <i class="bi bi-translate me-1"></i> {{ _("settings_language") }}
             </label>
@@ -53,6 +57,8 @@
             <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
             <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
             <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
             <div class="col-md-4">
                 <label class="form-label">{{ _("settings_backup_interval") }}</label>
                 <input type="number" min="1" class="form-control" name="backup_interval_minutes"
@@ -72,6 +78,59 @@
                 <i class="bi bi-hdd-stack"></i> {{ _("settings_backup_now") }}
             </button>
         </form>
+    </div>
+</div>
+
+<!-- Tire details & seasonal tracking -->
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-speedometer"></i> {{ _("settings_tire_details_title") }}</h5>
+        <!-- Enable tire details toggle -->
+        <form method="post" class="mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
+            <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
+            <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
+            <div class="form-check form-switch fs-5">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="tireDetailsSwitch" name="enable_tire_details" value="1"
+                       {{ 'checked' if s.enable_tire_details else '' }}
+                       onchange="this.form.submit()">
+                <label class="form-check-label" for="tireDetailsSwitch">
+                    <i class="bi bi-card-checklist me-1"></i> {{ _("settings_enable_tire_details") }}
+                </label>
+            </div>
+            <small class="text-body-secondary d-block mt-1">
+                {{ _("settings_enable_tire_details_hint") }}
+            </small>
+        </form>
+        <!-- Enable seasonal tracking toggle (only visible when tire details enabled) -->
+        {% if s.enable_tire_details %}
+        <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
+            <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
+            <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="1">
+            <div class="form-check form-switch fs-5">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="seasonalTrackingSwitch" name="enable_seasonal_tracking" value="1"
+                       {{ 'checked' if s.enable_seasonal_tracking else '' }}
+                       onchange="this.form.submit()">
+                <label class="form-check-label" for="seasonalTrackingSwitch">
+                    <i class="bi bi-snow me-1"></i> {{ _("settings_enable_seasonal_tracking") }}
+                </label>
+            </div>
+            <small class="text-body-secondary d-block mt-1">
+                {{ _("settings_enable_seasonal_tracking_hint") }}
+            </small>
+        </form>
+        {% endif %}
     </div>
 </div>
 
@@ -98,6 +157,8 @@
             <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
             <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
             <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
             <div class="form-check form-switch fs-5">
                 <input class="form-check-input" type="checkbox" role="switch"
                        id="autoUpdateSwitch" name="auto_update" value="1"
