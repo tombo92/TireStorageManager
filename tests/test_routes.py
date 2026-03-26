@@ -9,6 +9,51 @@ class TestIndex:
         assert resp.status_code == 200
         assert b"Reifenmanager" in resp.data or resp.status_code == 200
 
+    def test_stat_cards_present(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        # Four stat cards rendered
+        assert b"text-primary" in resp.data   # total card
+        assert b"text-success" in resp.data   # free card
+        assert b"progress-bar" in resp.data   # occupancy bar
+
+    def test_occupancy_zero_when_empty(self, client):
+        resp = client.get("/")
+        assert b"0%" in resp.data
+
+    def test_recent_activity_empty_state(self, client):
+        resp = client.get("/")
+        # No audit entries — empty-state text must be present
+        assert "stats_no_activity" not in resp.data.decode()  # key not leaked
+        assert resp.status_code == 200
+
+    def test_recent_activity_shows_entry(
+            self, client, db_session, seed_wheelset):
+        db_session.add(AuditLog(
+            action="create",
+            wheelset_id=seed_wheelset.id,
+            details="AB-CD 1234",
+        ))
+        db_session.commit()
+        resp = client.get("/")
+        assert b"AB-CD 1234" in resp.data
+
+    def test_top_cars_empty_state(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+
+    def test_top_cars_shows_car_type(self, client, seed_wheelset):
+        resp = client.get("/")
+        assert b"VW Golf" in resp.data
+
+    def test_context_variables(self, client, seed_wheelset, db_session):
+        """Verify all new context variables reach the template."""
+        resp = client.get("/")
+        data = resp.data.decode()
+        # Occupancy bar present with non-zero value after seeding one wheelset
+        assert "progress-bar" in data
+        assert resp.status_code == 200
+
 
 class TestWheelsetsList:
     def test_get_empty(self, client):

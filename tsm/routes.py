@@ -89,12 +89,47 @@ def register_routes(app):
     def index():
         db = SessionLocal()
         try:
-            total = db.query(WheelSet).count()
-            nf = first_free_position(db)
+            total_positions = len(get_effective_positions(db))
+            disabled = get_disabled_positions(db)
+            occupied = get_occupied_positions(db)
             free_pos = free_positions(db)
-            return render_template("index.html", total=total, next_free=nf,
-                                   free_positions=free_pos,
-                                   free_count=len(free_pos), active="home")
+            total_wheelsets = db.query(WheelSet).count()
+            usable_positions = total_positions - len(disabled)
+            occupancy_pct = (
+                round(total_wheelsets / usable_positions * 100)
+                if usable_positions > 0 else 0
+            )
+            recent_activity = (
+                db.query(AuditLog)
+                .order_by(AuditLog.created_at.desc())
+                .limit(5)
+                .all()
+            )
+            # Top 3 car types by count
+            from sqlalchemy import func
+            top_cars = (
+                db.query(WheelSet.car_type,
+                         func.count(WheelSet.id).label("cnt"))
+                .group_by(WheelSet.car_type)
+                .order_by(func.count(WheelSet.id).desc())
+                .limit(3)
+                .all()
+            )
+            nf = first_free_position(db)
+            return render_template(
+                "index.html",
+                total=total_wheelsets,
+                total_positions=total_positions,
+                usable_positions=usable_positions,
+                occupied_count=len(occupied),
+                free_count=len(free_pos),
+                free_positions=free_pos,
+                occupancy_pct=occupancy_pct,
+                recent_activity=recent_activity,
+                top_cars=top_cars,
+                next_free=nf,
+                active="home",
+            )
         finally:
             SessionLocal.remove()
 
