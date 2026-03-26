@@ -21,6 +21,7 @@ Usage:
 import argparse
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 
@@ -28,6 +29,7 @@ from pathlib import Path
 # GLOBALS
 # ========================================================
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.py"
+CHANGELOG_PATH = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
 VERSION_RX = re.compile(
     r'(^\s*VERSION\s*=\s*")(\d+)\.(\d+)\.(\d+)(".*$)',
     re.MULTILINE,
