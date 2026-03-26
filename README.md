@@ -1,6 +1,6 @@
 # TireStorageManager
 
-> **Hinweis:** Die Benutzeroberfläche dieser Anwendung ist ausschließlich auf Deutsch verfügbar.
+> **Sprache / Language:** The UI supports **German** and **English**. The language can be changed in the Settings page.
 
 A lightweight web application for managing tire and wheel storage in workshops.
 Customers' wheel sets are tracked by storage position, vehicle, and season.

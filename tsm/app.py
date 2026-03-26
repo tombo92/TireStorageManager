@@ -11,12 +11,13 @@ Flask App Factory
 # ========================================================
 from datetime import datetime, timezone
 from pathlib import Path
-from flask import Flask
+from flask import Flask, g
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
 from config import SECRET_KEY, APP_NAME, VERSION, IS_PRERELEASE
 from tsm.utils import get_csrf_token
+from tsm.i18n import gettext, get_locale, SUPPORTED_LOCALES
 
 
 # --------------------------------------------------------
@@ -38,12 +39,30 @@ def create_app():
                 )
     app.secret_key = SECRET_KEY
 
+    # ── Locale: set g._tsm_locale before every request ──────────
+    @app.before_request
+    def _set_locale():
+        from tsm.db import SessionLocal
+        from tsm.models import Settings
+        try:
+            db = SessionLocal()
+            s = db.query(Settings).first()
+            locale = (s.language if s and s.language in SUPPORTED_LOCALES
+                      else "de")
+        except Exception:
+            locale = "de"
+        finally:
+            SessionLocal.remove()
+        g._tsm_locale = locale
+
     # Jinja globals
     app.jinja_env.globals["csrf_token"] = get_csrf_token
     app.jinja_env.globals["APP_VERSION"] = VERSION
     app.jinja_env.globals["APP_NAME"] = APP_NAME
     app.jinja_env.globals["IS_PRERELEASE"] = IS_PRERELEASE
     app.jinja_env.globals["now"] = lambda: datetime.now(timezone.utc)
+    app.jinja_env.globals["_"] = gettext
+    app.jinja_env.globals["get_locale"] = get_locale
 
     # Register routes
     from tsm.routes import register_routes
