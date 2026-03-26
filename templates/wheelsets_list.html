@@ -33,16 +33,47 @@
         </thead>
         <tbody>
             {% for w in items %}
-            <tr>
+            {% set is_overdue = w.id in overdue_ids %}
+            <tr class="{{ 'table-danger overdue-row' if is_overdue else '' }}">
                 <td>{{ w.id }}</td>
-                <td>{{ w.customer_name }}</td>
+                <td>
+                    {{ w.customer_name }}
+                    {% if is_overdue %}
+                    <i class="bi bi-exclamation-triangle-fill text-danger ms-1"
+                       title="{{ _('wl_overdue_hint') }}"></i>
+                    {% endif %}
+                </td>
                 <td><span class="badge text-bg-primary">{{ w.license_plate }}</span></td>
                 <td>{{ w.car_type }}</td>
                 <td>
                     {% set cls = 'pos-container' if w.storage_position.startswith('C') else 'pos-garage' %}
                     <span class="badge pos-badge {{ cls }}">{{ w.storage_position }}</span>
                 </td>
-                <td>{{ w.note or "" }}</td>
+                <td>
+                    {# Season badge with icon #}
+                    {% if settings.enable_tire_details and w.season %}
+                    <span class="badge season-badge season-{{ w.season }}
+                                 {{ 'season-overdue' if is_overdue else '' }}"
+                          {% if w.exchange_note %}title="{{ w.exchange_note }}"{% endif %}>
+                        {% if w.season == 'sommer' %}
+                        <i class="bi bi-sun-fill"></i>
+                        {% elif w.season == 'winter' %}
+                        <i class="bi bi-snow"></i>
+                        {% else %}
+                        <i class="bi bi-cloud-drizzle-fill"></i>
+                        {% endif %}
+                        {{ _("wf_season_" + w.season) }}
+                    </span>
+                    {% endif %}
+                    {# Rim badge #}
+                    {% if settings.enable_tire_details and w.rim_type %}
+                    <span class="badge text-bg-light border ms-1">{{ _("wf_rim_" + w.rim_type) }}</span>
+                    {% endif %}
+                    {# Plain note — shown after badges, truncated #}
+                    {% if w.note %}
+                    <span class="ms-1 text-body-secondary small">{{ w.note }}</span>
+                    {% endif %}
+                </td>
                 <td class="text-nowrap">
                     <a class="btn btn-sm btn-outline-secondary"
                        href="{{ url_for('edit_wheelset', wid=w.id) }}"

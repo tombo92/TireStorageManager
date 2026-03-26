@@ -12,7 +12,10 @@ The application runs as a **Windows Service** and is accessible from any device 
 
 - 📦 Manage wheel sets with customer name, vehicle, position, and notes
 - 🔢 **German licence-plate validation** — enforces the standard format (`ORT KK 1234`) in the browser and on the server; auto-formats on blur, rejects invalid entries before saving
-- 🗺️ Visual storage position overview with free/occupied status
+- � **Extended tire details** _(optional)_ — store tyre manufacturer, size, age/DOT, season (Sommer/Winter/Allwetter), rim type (Stahl/Alu), and exchange note per wheel set; enabled via a toggle in Settings
+- ⚠️ **Seasonal overdue detection** _(optional)_ — wheel sets past their seasonal exchange window are highlighted with a pulsing row and warning icon (Sommer tyres: Jan–Apr; Winter tyres: Jul–Sep; swap windows are not flagged)
+- 🏷️ Season badges with icons (☀ Sommer, ❄ Winter, 🌦 Allwetter) on the wheel set list; exchange note shown as tooltip
+- �🗺️ Visual storage position overview with free/occupied status
 - 🔍 Full-text search and filter by customer / vehicle
 - 🌙 **Dark mode** — toggled from Settings, shared across all clients
 - 🗂️ **Customizable storage positions** — define your own positions from scratch via the Settings UI

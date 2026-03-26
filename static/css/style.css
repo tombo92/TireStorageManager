@@ -385,3 +385,61 @@ select[name="storage_position"].pos-select {
 .update-release-body li {
     margin-bottom: .15rem;
 }
+
+/* =========================================================
+   Season badges (wheel set list)
+   ========================================================= */
+.season-badge {
+    font-size: .78rem;
+    padding: .25em .55em;
+    border-radius: .4rem;
+    display: inline-flex;
+    align-items: center;
+    gap: .3em;
+}
+
+.season-sommer {
+    background-color: #f59e0b;
+    color: #1c1917;
+}
+
+.season-winter {
+    background-color: #38bdf8;
+    color: #0c1a2e;
+}
+
+.season-allwetter {
+    background-color: #6b7280;
+    color: #fff;
+}
+
+/* Overdue: pulsing left border on the table row */
+.overdue-row {
+    border-left: 3px solid #dc3545;
+    animation: overdue-pulse 2s ease-in-out infinite;
+}
+
+.season-overdue {
+    outline: 2px solid #dc3545;
+    outline-offset: 1px;
+}
+
+@keyframes overdue-pulse {
+    0%, 100% { background-color: rgba(220, 53, 69, .06); }
+    50%       { background-color: rgba(220, 53, 69, .16); }
+}
+
+[data-bs-theme="dark"] .season-sommer {
+    background-color: #d97706;
+    color: #fef3c7;
+}
+
+[data-bs-theme="dark"] .season-winter {
+    background-color: #0284c7;
+    color: #e0f2fe;
+}
+
+[data-bs-theme="dark"] .season-allwetter {
+    background-color: #4b5563;
+    color: #f9fafb;
+}

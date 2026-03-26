@@ -92,6 +92,7 @@ def main() -> int:
         return 4
 
     CONFIG_PATH.write_text(new_text, encoding="utf-8")
+    _stamp_changelog(new_version)
     # print only the version — CI captures this via $()
     print(new_version)
     return 0

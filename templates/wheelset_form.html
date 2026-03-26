@@ -57,6 +57,55 @@
         <label class="form-label">{{ _("wf_note") }}</label>
         <textarea class="form-control" name="note" rows="3">{{ (w.note or '') if w else '' }}</textarea>
     </div>
+
+    {% if settings.enable_tire_details %}
+    {# ── Extended tire detail fields ── #}
+    <div class="col-12">
+        <hr class="my-1">
+        <h6 class="text-body-secondary mb-3">
+            <i class="bi bi-speedometer me-1"></i>{{ _("wf_tire_details_section") }}
+        </h6>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _("wf_tire_manufacturer") }}</label>
+        <input type="text" class="form-control" name="tire_manufacturer"
+               value="{{ (w.tire_manufacturer or '') if w else '' }}">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _("wf_tire_size") }}</label>
+        <input type="text" class="form-control" name="tire_size"
+               placeholder="205/55 R16"
+               value="{{ (w.tire_size or '') if w else '' }}">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _("wf_tire_age") }}</label>
+        <input type="text" class="form-control" name="tire_age"
+               placeholder="2021"
+               value="{{ (w.tire_age or '') if w else '' }}">
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">{{ _("wf_season") }}</label>
+        <select class="form-select" name="season">
+            <option value="" {% if not w or not w.season %}selected{% endif %}>—</option>
+            <option value="sommer"     {% if w and w.season == 'sommer' %}selected{% endif %}>{{ _("wf_season_sommer") }}</option>
+            <option value="winter"     {% if w and w.season == 'winter' %}selected{% endif %}>{{ _("wf_season_winter") }}</option>
+            <option value="allwetter"  {% if w and w.season == 'allwetter' %}selected{% endif %}>{{ _("wf_season_allwetter") }}</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">{{ _("wf_rim_type") }}</label>
+        <select class="form-select" name="rim_type">
+            <option value="" {% if not w or not w.rim_type %}selected{% endif %}>—</option>
+            <option value="stahl"  {% if w and w.rim_type == 'stahl' %}selected{% endif %}>{{ _("wf_rim_stahl") }}</option>
+            <option value="alu"    {% if w and w.rim_type == 'alu' %}selected{% endif %}>{{ _("wf_rim_alu") }}</option>
+        </select>
+    </div>
+    <div class="col-12">
+        <label class="form-label">{{ _("wf_exchange_note") }}</label>
+        <textarea class="form-control" name="exchange_note" rows="2">{{ (w.exchange_note or '') if w else '' }}</textarea>
+    </div>
+    {% endif %}
+
     <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> {{ _("wf_save") }}</button>
         <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">{{ _("wf_cancel") }}</a>
