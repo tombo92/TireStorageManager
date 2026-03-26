@@ -83,3 +83,25 @@ def normalize_license_plate(value: str) -> str:
     and is never silently rewritten.
     """
     return value.strip().upper()
+
+
+def overdue_season(month: int) -> str | None:
+    """Return the season name whose tires are overdue for the given month.
+
+    Swap windows (not overdue):
+      - May–Jun  (5–6):  winter→summer is happening now
+      - Oct–Dec (10–12): summer→winter is happening now
+
+    Overdue:
+      - Jan–Apr  (1–4):  summer tires still stored
+                         (swap to winter should have finished by Dec)
+      - Jul–Sep  (7–9):  winter tires still stored
+                         (swap to summer should have finished by Jun)
+
+    Returns None when neither season is considered overdue (swap windows).
+    """
+    if 1 <= month <= 4:
+        return "sommer"   # should have left by December
+    if 7 <= month <= 9:
+        return "winter"   # should have left by June
+    return None           # active swap window (May–Jun or Oct–Dec)

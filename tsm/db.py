@@ -80,6 +80,33 @@ def _migrate():
                 "ALTER TABLE settings "
                 "ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'de'"
             ))
+        if "enable_tire_details" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN enable_tire_details BOOLEAN NOT NULL DEFAULT 0"
+            ))
+        if "enable_seasonal_tracking" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN enable_seasonal_tracking "
+                "BOOLEAN NOT NULL DEFAULT 0"
+            ))
+
+    if "wheel_sets" in insp.get_table_names():
+        ws_existing = {c["name"] for c in insp.get_columns("wheel_sets")}
+        with engine.begin() as conn:
+            for col, typ in [
+                ("tire_manufacturer", "VARCHAR(100)"),
+                ("tire_size",         "VARCHAR(50)"),
+                ("tire_age",          "VARCHAR(20)"),
+                ("season",            "VARCHAR(20)"),
+                ("rim_type",          "VARCHAR(20)"),
+                ("exchange_note",     "TEXT"),
+            ]:
+                if col not in ws_existing:
+                    conn.execute(text(
+                        f"ALTER TABLE wheel_sets ADD COLUMN {col} {typ}"
+                    ))
 
 
 _migrate()

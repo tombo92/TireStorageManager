@@ -34,6 +34,7 @@ from tsm.utils import (
     validate_csrf,
     is_valid_license_plate,
     normalize_license_plate,
+    overdue_season,
 )
 from tsm.i18n import gettext as _
 # for route use (CSV)
@@ -147,7 +148,22 @@ def register_routes(app):
                     (WheelSet.car_type.ilike(like))
                 )
             items = query.order_by(WheelSet.updated_at.desc()).all()
+            s = get_or_create_settings(db)
+
+            # Seasonal overdue detection (only when tire details enabled)
+            # Jan–Jun: winter tires should leave → winter still stored = overdue
+            # Jul–Dec: summer tires should leave → summer still stored = overdue
+            overdue_ids: set[int] = set()
+            if s.enable_tire_details:
+                month = datetime.now().month
+                due_season = overdue_season(month)
+                if due_season is not None:
+                    for w in items:
+                        if w.season == due_season:
+                            overdue_ids.add(w.id)
+
             return render_template("wheelsets_list.html", items=items,
+                                   settings=s, overdue_ids=overdue_ids,
                                    active="wheelsets")
         finally:
             SessionLocal.remove()
@@ -163,6 +179,7 @@ def register_routes(app):
             effective = get_effective_positions(db)
             pos_choices = [p for p in effective
                            if p not in occupied and p not in disabled]
+            s = get_or_create_settings(db)
 
             if request.method == "POST":
                 validate_csrf()
@@ -202,6 +219,26 @@ def register_routes(app):
                     note=note,
                     storage_position=storage_position
                 )
+                if s.enable_tire_details:
+                    w.tire_manufacturer = (
+                        request.form.get("tire_manufacturer", "")
+                        .strip() or None
+                    )
+                    w.tire_size = (
+                        request.form.get("tire_size", "").strip() or None
+                    )
+                    w.tire_age = (
+                        request.form.get("tire_age", "").strip() or None
+                    )
+                    season = request.form.get("season", "").strip()
+                    w.season = season if season in (
+                        "sommer", "winter", "allwetter") else None
+                    rim = request.form.get("rim_type", "").strip()
+                    w.rim_type = rim if rim in ("stahl", "alu") else None
+                    w.exchange_note = (
+                        request.form.get("exchange_note", "")
+                        .strip() or None
+                    )
                 db.add(w)
                 try:
                     db.commit()
@@ -220,7 +257,7 @@ def register_routes(app):
 
             return render_template("wheelset_form.html", w=None, editing=False,
                                    positions=pos_choices, suggested=suggested,
-                                   active="wheelsets")
+                                   settings=s, active="wheelsets")
         finally:
             SessionLocal.remove()
 
@@ -236,15 +273,13 @@ def register_routes(app):
             occupied.discard(w.storage_position)
             disabled = get_disabled_positions(db)
             effective = get_effective_positions(db)
-            # Current position may be disabled later;
-            # keep it selectable for editing,
-            # but disallow changing to other disabled ones.
             pos_choices = [
                 p for p in effective if
                 (p not in occupied)
                 and (p not in disabled
                      or p == w.storage_position)
             ]
+            s = get_or_create_settings(db)
             if request.method == "POST":
                 validate_csrf()
                 customer_name = request.form.get("customer_name", "").strip()
@@ -287,6 +322,27 @@ def register_routes(app):
                 w.note = note
                 w.storage_position = storage_position
 
+                if s.enable_tire_details:
+                    w.tire_manufacturer = (
+                        request.form.get("tire_manufacturer", "")
+                        .strip() or None
+                    )
+                    w.tire_size = (
+                        request.form.get("tire_size", "").strip() or None
+                    )
+                    w.tire_age = (
+                        request.form.get("tire_age", "").strip() or None
+                    )
+                    season = request.form.get("season", "").strip()
+                    w.season = season if season in (
+                        "sommer", "winter", "allwetter") else None
+                    rim = request.form.get("rim_type", "").strip()
+                    w.rim_type = rim if rim in ("stahl", "alu") else None
+                    w.exchange_note = (
+                        request.form.get("exchange_note", "")
+                        .strip() or None
+                    )
+
                 try:
                     db.commit()
                 except IntegrityError:
@@ -301,7 +357,7 @@ def register_routes(app):
 
             return render_template("wheelset_form.html", w=w, editing=True,
                                    positions=pos_choices, suggested=None,
-                                   active="wheelsets")
+                                   settings=s, active="wheelsets")
         finally:
             SessionLocal.remove()
 
@@ -378,6 +434,14 @@ def register_routes(app):
                     from tsm.i18n import SUPPORTED_LOCALES
                     lang = request.form.get("language", "de")
                     s.language = lang if lang in SUPPORTED_LOCALES else "de"
+                    s.enable_tire_details = (
+                        request.form.get("enable_tire_details") == "1"
+                    )
+                    s.enable_seasonal_tracking = (
+                        request.form.get(
+                            "enable_seasonal_tracking") == "1"
+                        and s.enable_tire_details
+                    )
                     db.commit()
                     g._tsm_locale = s.language
                     _refresh_dark_mode()
