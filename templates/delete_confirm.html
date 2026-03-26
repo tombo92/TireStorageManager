@@ -1,32 +1,28 @@
 {% extends 'base.html' %}
 {% block content %}
-<h3 class="text-danger"><i class="bi bi-exclamation-triangle-fill"></i> Radsatz sicher löschen</h3>
+<h3 class="text-danger"><i class="bi bi-exclamation-triangle-fill"></i> {{ _("del_title") }}</h3>
 <div class="card border-danger">
     <div class="card-body">
-        <p>Bitte bestätigen Sie die Löschung des folgenden Radsatzes. Dieser Vorgang kann nicht rückgängig gemacht
-            werden.</p>
+        <p>{{ _("del_warning") }}</p>
         <ul>
-            <li><strong>Kunde:</strong> {{ w.customer_name }}</li>
-            <li><strong>Kennzeichen:</strong> <span class="badge text-bg-primary">{{ w.license_plate }}</span></li>
-            <li><strong>Fahrzeug:</strong> {{ w.car_type }}</li>
-            <li><strong>Position:</strong> <span class="pos-inline">{{ w.storage_position }}</span></li>
+            <li><strong>{{ _("wl_customer") }}:</strong> {{ w.customer_name }}</li>
+            <li><strong>{{ _("wl_plate") }}:</strong> <span class="badge text-bg-primary">{{ w.license_plate }}</span>
+            </li>
+            <li><strong>{{ _("wl_car") }}:</strong> {{ w.car_type }}</li>
+            <li><strong>{{ _("wl_position") }}:</strong> <span class="pos-inline">{{ w.storage_position }}</span></li>
         </ul>
         <form method="post" class="mt-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
-                <label class="form-label">Zur Bestätigung geben Sie das Kennzeichen ein:</label>
+                <label class="form-label">{{ _("del_confirm_label") }}</label>
                 <input type="text" class="form-control text-uppercase font-monospace"
                     name="confirm_plate" id="confirm_plate" required
                     autocomplete="off" spellcheck="false" maxlength="15"
                     placeholder="{{ w.license_plate }}">
-                <div class="form-text">Kennzeichen exakt wie angezeigt eingeben: <strong>{{ w.license_plate }}</strong></div>
+                <div class="form-text">{{ w.license_plate }}</div>
             </div>
-            <button class="btn btn-danger"><i class="bi bi-trash"></i> Endgültig löschen</button>
-            <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">Abbrechen</a>
-            <div class="form-text mt-2">
-                Sichere Löschung ist aktiviert (<code>PRAGMA secure_delete=ON</code>), und es wird ein Audit-Eintrag
-                erzeugt.
-            </div>
+            <button class="btn btn-danger"><i class="bi bi-trash"></i> {{ _("del_btn") }}</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">{{ _("del_cancel") }}</a>
         </form>
     </div>
 </div>

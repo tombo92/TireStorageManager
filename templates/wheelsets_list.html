@@ -1,17 +1,20 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-list-ul"></i> Radsätze</h3>
-    <a class="btn btn-primary" href="{{ url_for('create_wheelset') }}"><i class="bi bi-plus-circle"></i> Neu</a>
+    <h3><i class="bi bi-list-ul"></i> {{ _("wl_title") }}</h3>
+    <a class="btn btn-primary" href="{{ url_for('create_wheelset') }}">
+        <i class="bi bi-plus-circle"></i> {{ _("wl_add") }}
+    </a>
 </div>
 
 <form class="row g-2 mb-3" method="get">
     <div class="col-sm-10">
-        <input type="text" class="form-control" name="q" placeholder="Suche nach Name, Kennzeichen, Fahrzeug…"
-            value="{{ request.args.get('q','') }}">
+        <input type="text" class="form-control" name="q"
+               placeholder="{{ _('search_placeholder') }}"
+               value="{{ request.args.get('q','') }}">
     </div>
     <div class="col-sm-2 d-grid">
-        <button class="btn btn-primary"><i class="bi bi-search"></i> Suchen</button>
+        <button class="btn btn-primary"><i class="bi bi-search"></i></button>
     </div>
 </form>
 
@@ -20,12 +23,12 @@
         <thead class="table-dark">
             <tr>
                 <th>#</th>
-                <th>Kunde</th>
-                <th>Kennzeichen</th>
-                <th>Fahrzeug</th>
-                <th>Position</th>
-                <th>Notiz</th>
-                <th>Aktionen</th>
+                <th>{{ _("wl_customer") }}</th>
+                <th>{{ _("wl_plate") }}</th>
+                <th>{{ _("wl_car") }}</th>
+                <th>{{ _("wl_position") }}</th>
+                <th>{{ _("wl_note") }}</th>
+                <th>{{ _("wl_actions") }}</th>
             </tr>
         </thead>
         <tbody>
@@ -41,10 +44,12 @@
                 </td>
                 <td>{{ w.note or "" }}</td>
                 <td class="text-nowrap">
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_wheelset', wid=w.id) }}"><i
-                            class="bi bi-pencil-square"></i></a>
+                    <a class="btn btn-sm btn-outline-secondary"
+                       href="{{ url_for('edit_wheelset', wid=w.id) }}"
+                       title="{{ _('wl_edit') }}"><i class="bi bi-pencil-square"></i></a>
                     <a class="btn btn-sm btn-outline-danger"
-                        href="{{ url_for('delete_wheelset_confirm', wid=w.id) }}"><i class="bi bi-trash"></i></a>
+                       href="{{ url_for('delete_wheelset_confirm', wid=w.id) }}"
+                       title="{{ _('wl_delete') }}"><i class="bi bi-trash"></i></a>
                 </td>
             </tr>
             {% endfor %}
@@ -52,6 +57,6 @@
     </table>
 </div>
 {% if not items %}
-<div class="alert alert-info">Keine Einträge gefunden.</div>
+<div class="alert alert-info">{{ _("wl_no_results") }}</div>
 {% endif %}
 {% endblock %}

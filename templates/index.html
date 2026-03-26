@@ -4,23 +4,23 @@
     <div class="col-12 col-lg-4">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-archive"></i> Schnellübersicht</h5>
+                <h5 class="card-title"><i class="bi bi-archive"></i> {{ _("index_title") }}</h5>
                 <ul class="list-group">
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                        Gesamtanzahl Radsätze
+                        {{ _("index_total") }}
                         <span class="badge text-bg-primary rounded-pill">{{ total }}</span>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                        Belegte Positionen
+                        {{ _("wl_position") }}
                         <span class="badge text-bg-warning rounded-pill">{{ total }}</span>
                     </li>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                        Freie Positionen
+                        {{ _("index_free") }}
                         <span class="badge text-bg-success rounded-pill">{{ free_count }}</span>
                     </li>
                 </ul>
                 <a class="btn btn-primary mt-3" href="{{ url_for('create_wheelset') }}">
-                    <i class="bi bi-plus-circle"></i> Neuen Radsatz anlegen
+                    <i class="bi bi-plus-circle"></i> {{ _("wl_add") }}
                 </a>
             </div>
         </div>
@@ -29,33 +29,31 @@
     <div class="col-12 col-lg-8">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-lightbulb"></i> Nächste freie Position</h5>
+                <h5 class="card-title"><i class="bi bi-lightbulb"></i> {{ _("index_next_free") }}</h5>
                 {% if next_free %}
                 {% set cls = 'pos-container' if next_free.startswith('C') else 'pos-garage' %}
-                <p>Vorschlag:
-                    <span class="badge pos-badge pos-badge-lg {{ cls }}">{{ next_free }}</span>
-                </p>
+                <p><span class="badge pos-badge pos-badge-lg {{ cls }}">{{ next_free }}</span></p>
                 <a class="btn btn-success" href="{{ url_for('create_wheelset', suggested=next_free) }}">
-                    <i class="bi bi-plus-lg"></i> Radsatz hier anlegen
+                    <i class="bi bi-plus-lg"></i> {{ _("wl_add") }}
                 </a>
                 {% else %}
-                <p class="text-danger">Keine freien Positionen verfügbar.</p>
+                <p class="text-danger">{{ _("pos_none_free") }}</p>
                 {% endif %}
                 <hr>
-                <h6>Kurzübersicht freie Positionen (erste 30)</h6>
+                <h6>{{ _("pos_free") }}</h6>
                 {% if free_positions %}
                 <div class="pos-cloud">
                     {% for p in free_positions[:30] %}
                     {% set cls = 'pos-container' if p.startswith('C') else 'pos-garage' %}
                     <a class="btn pos-btn {{ cls }}" href="{{ url_for('create_wheelset', suggested=p) }}"
-                        title="Radsatz anlegen @ {{ p }}">{{ p }}</a>
+                        title="{{ _('wl_add') }} @ {{ p }}">{{ p }}</a>
                     {% endfor %}
                 </div>
                 {% if free_positions|length > 30 %}
-                <div class="mt-2"><a href="{{ url_for('positions') }}">Alle anzeigen…</a></div>
+                <div class="mt-2"><a href="{{ url_for('positions') }}">…</a></div>
                 {% endif %}
                 {% else %}
-                <p>Keine freien Positionen.</p>
+                <p>{{ _("pos_none_free") }}</p>
                 {% endif %}
             </div>
         </div>
