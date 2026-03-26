@@ -164,9 +164,13 @@ jobs:
       - name: Smoke-test TireStorageManager.exe
         shell: pwsh
         run: |
-          # --no-update prevents the EXE from self-updating and exiting
-          # before the HTTP probe can connect.
-          $proc = Start-Process -FilePath "dist\TireStorageManager.exe" `
+          # Run the smoke test from a COPY so dist\TireStorageManager.exe
+          # is never memory-mapped and remains unlocked for signing.
+          $smokeExe = "$env:RUNNER_TEMP\tsm_smoke_run\TireStorageManager.exe"
+          New-Item -ItemType Directory -Path (Split-Path $smokeExe) -Force | Out-Null
+          Copy-Item "dist\TireStorageManager.exe" $smokeExe -Force
+
+          $proc = Start-Process -FilePath $smokeExe `
             -ArgumentList "--port","59123","--host","127.0.0.1",
                           "--data-dir","$env:RUNNER_TEMP\tsm_smoke",
                           "--no-update" `
@@ -192,13 +196,14 @@ jobs:
           # ── Full HTTP smoke test (stdlib-only Python) ─────────────────
           python tools/smoke_test.py `
             --base-url  http://127.0.0.1:59123 `
-            --exe-path  dist\TireStorageManager.exe `
+            --exe-path  $smokeExe `
             --data-dir  "$env:RUNNER_TEMP\tsm_smoke" `
             --port      59123
           $smokeExit = $LASTEXITCODE
 
           # ── Tear down EXE ─────────────────────────────────────────────
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          try { $proc.WaitForExit(10000) } catch {}
 
           if ($smokeExit -ne 0) {
             Write-Error "Smoke test suite reported failures (exit $smokeExit)"
@@ -383,12 +388,12 @@ jobs:
             echo "tag=v${{ needs.bump.outputs.new_version }}" >> $GITHUB_OUTPUT
             echo "name=TireStorageManager v${{ needs.bump.outputs.new_version }}" >> $GITHUB_OUTPUT
             echo "prerelease=false" >> $GITHUB_OUTPUT
-            echo "body_prefix=" >> $GITHUB_OUTPUT
+            echo "warning=" >> $GITHUB_OUTPUT
           else
             echo "tag=v${{ needs.bump.outputs.new_version }}-dev" >> $GITHUB_OUTPUT
             echo "name=⚠ TEST v${{ needs.bump.outputs.new_version }}-dev (develop)" >> $GITHUB_OUTPUT
             echo "prerelease=true" >> $GITHUB_OUTPUT
-            printf 'body_prefix=> ⚠ **TEST-BUILD** – Nicht für den produktiven Einsatz.\n' >> $GITHUB_OUTPUT
+            echo "warning=> ⚠ **TEST-BUILD** – Nicht für den produktiven Einsatz geeignet. Commit: \`${{ github.sha }}\`" >> $GITHUB_OUTPUT
           fi
 
       - name: Create or update GitHub Release
@@ -397,7 +402,8 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.name }}
           body: |
-            ${{ steps.meta.outputs.body_prefix }}
+            ${{ steps.meta.outputs.warning }}
+
             ## TireStorageManager v${{ needs.bump.outputs.new_version }}
 
             ${{ steps.changelog.outputs.NOTES }}
@@ -408,6 +414,9 @@ jobs:
             |-------|-------------|
             | `TSM-Installer.exe` | Installer/Deinstaller mit GUI |
             | `TireStorageManager.exe` | Standalone-Anwendung (ohne Installer) |
+
+            ---
+            📋 [Vollständiges Changelog](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md)
           files: |
             release-assets/TSM-Installer.exe
             release-assets/TireStorageManager.exe
