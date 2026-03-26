@@ -75,6 +75,11 @@ def _migrate():
                 "ALTER TABLE settings "
                 "ADD COLUMN auto_update BOOLEAN NOT NULL DEFAULT 1"
             ))
+        if "language" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'de'"
+            ))
 
 
 _migrate()

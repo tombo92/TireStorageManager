@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -->
 
 ## [Unreleased]
+### Added
+- **English language support** — the UI language can now be switched between German and English in Settings. Language choice is persisted per-installation in the database.
+- Lightweight dict-based i18n module (`tsm/i18n.py`) with ~80 translation keys; no `.po`/`.mo` compilation required — fully compatible with PyInstaller EXE builds.
+- Language selector dropdown in the Settings → Appearance card (🇩🇪 Deutsch / 🇬🇧 English).
 
 ## [1.5.0] – 2026-03-26
 ### Added

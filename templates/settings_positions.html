@@ -1,9 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-grid-3x3-gap"></i> Positionen verwalten</h3>
+    <h3><i class="bi bi-grid-3x3-gap"></i> {{ _("sp_title") }}</h3>
     <a class="btn btn-outline-secondary" href="{{ url_for('settings') }}">
-        <i class="bi bi-arrow-left"></i> Zurück
+        <i class="bi bi-arrow-left"></i> {{ _("sp_back") }}
     </a>
 </div>
 
@@ -11,16 +11,16 @@
 <div class="alert alert-info d-flex align-items-center">
     <i class="bi bi-info-circle-fill me-2 fs-5"></i>
     <div>
-        <strong>Individuelle Positionen aktiv.</strong>
-        Es werden benutzerdefinierte Positionen verwendet ({{ positions|length }} Stück).
+        <strong>{{ _("sp_custom_active") }}</strong>
+        {{ _("sp_custom_desc", n=positions|length) }}
     </div>
 </div>
 {% else %}
 <div class="alert alert-secondary d-flex align-items-center">
     <i class="bi bi-shield-check me-2 fs-5"></i>
     <div>
-        <strong>Standard-Positionen aktiv.</strong>
-        Es werden die vordefinierten Container- und Garagen-Positionen verwendet ({{ positions|length }} Stück).
+        <strong>{{ _("sp_default_active") }}</strong>
+        {{ _("sp_default_desc", n=positions|length) }}
     </div>
 </div>
 {% endif %}
@@ -30,25 +30,22 @@
     <div class="col-lg-8">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-pencil-square"></i> Positionsliste bearbeiten</h5>
-                <p class="text-body-secondary">
-                    Eine Position pro Zeile. Die Reihenfolge hier bestimmt die Sortierung überall in der Anwendung.
-                    <br>Sie können beliebige Namen verwenden (z.B. <code>Halle-A-R1-O</code>, <code>Lager-3-Links</code>, …).
-                </p>
+                <h5 class="card-title"><i class="bi bi-pencil-square"></i> {{ _("sp_editor_title") }}</h5>
+                <p class="text-body-secondary">{{ _("sp_editor_hint") }}</p>
                 <form method="post">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="save">
                     <textarea class="form-control font-monospace" name="positions_text"
                               rows="20" style="font-size:.9rem; line-height:1.4;"
-                              placeholder="Eine Position pro Zeile …">{% for p in positions %}{{ p }}
+                              placeholder="…">{% for p in positions %}{{ p }}
 {% endfor %}</textarea>
                     <div class="mt-3 d-flex gap-2 flex-wrap">
                         <button class="btn btn-primary" type="submit">
-                            <i class="bi bi-save2"></i> Positionen speichern
+                            <i class="bi bi-save2"></i> {{ _("sp_save") }}
                         </button>
                         <button class="btn btn-outline-secondary" type="button"
                                 onclick="sortLines()">
-                            <i class="bi bi-sort-alpha-down"></i> Alphabetisch sortieren
+                            <i class="bi bi-sort-alpha-down"></i> {{ _("sp_sort") }}
                         </button>
                     </div>
                 </form>
@@ -60,15 +57,13 @@
     <div class="col-lg-4">
         <div class="card mb-3">
             <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-arrow-counterclockwise"></i> Zurücksetzen</h5>
-                <p class="text-body-secondary">
-                    Setzt alle Positionen auf die vordefinierten Container + Garagen-Positionen zurück.
-                </p>
-                <form method="post" onsubmit="return confirm('Wirklich auf Standard zurücksetzen? Eigene Positionen gehen verloren.');">
+                <h5 class="card-title"><i class="bi bi-arrow-counterclockwise"></i> {{ _("sp_reset_title") }}</h5>
+                <p class="text-body-secondary">{{ _("sp_reset_desc") }}</p>
+                <form method="post" onsubmit="return confirm({{ _('sp_reset_confirm')|tojson }});">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="reset">
                     <button class="btn btn-warning" type="submit">
-                        <i class="bi bi-arrow-counterclockwise"></i> Auf Standard zurücksetzen
+                        <i class="bi bi-arrow-counterclockwise"></i> {{ _("sp_reset_btn") }}
                     </button>
                 </form>
             </div>
@@ -76,15 +71,12 @@
 
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-lightbulb"></i> Tipps</h5>
+                <h5 class="card-title"><i class="bi bi-lightbulb"></i> {{ _("sp_tips_title") }}</h5>
                 <ul class="mb-0 text-body-secondary" style="font-size:.9rem;">
-                    <li>Jede Zeile = eine Position</li>
-                    <li>Leere Zeilen werden ignoriert</li>
-                    <li>Die Reihenfolge bestimmt die Vorschlagspriorität</li>
-                    <li>Bestehende Radsätze behalten ihre Position auch wenn sie hier entfernt wird</li>
-                    <li>Für Container/Garage-Schema nutzen:
-                        <code>C{1-4}{R/L}{O/M/U}{LL/L/MM/M/RR/R}</code> bzw.
-                        <code>GR{1-8}{O/M/U}{L/M/R}</code></li>
+                    <li>{{ _("sp_tip1") }}</li>
+                    <li>{{ _("sp_tip2") }}</li>
+                    <li>{{ _("sp_tip3") }}</li>
+                    <li>{{ _("sp_tip4") }}</li>
                 </ul>
             </div>
         </div>
