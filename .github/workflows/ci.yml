@@ -27,10 +27,37 @@ concurrency:
   cancel-in-progress: true
 
 # ──────────────────────────────────────────────────────────────
-# JOB 1 – Run unit tests  (every push & PR, all branches)
+# JOB 0 – Detect whether app source files changed
+#   Only changes to tsm/, templates/, static/ or config.py
+#   should trigger a version bump.  Tool/docs/installer changes
+#   still trigger tests and build but NOT a version bump.
 # ──────────────────────────────────────────────────────────────
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'tsm/**'
+              - 'templates/**'
+              - 'static/**'
+              - 'config.py'
+              - 'requirements.txt'
+
+
+  # ──────────────────────────────────────────────────────────────
+  # JOB 1 – Run unit tests  (every push & PR, all branches)
+  # ──────────────────────────────────────────────────────────────
   test:
+    needs: [ changes ]
     runs-on: ubuntu-latest
 
     steps:
@@ -207,9 +234,10 @@ jobs:
   #   • master  push → minor bump  (1.2.3 → 1.3.0), then sync to develop
   # ──────────────────────────────────────────────────────────────
   bump:
-    needs: [ build ]
+    needs: [ changes, build ]
     if: >
       needs.build.result == 'success' &&
+      needs.changes.outputs.app == 'true' &&
       github.event_name == 'push' &&
       github.actor != 'github-actions[bot]' &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
