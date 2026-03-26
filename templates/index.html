@@ -1,61 +1,173 @@
 {% extends 'base.html' %}
 {% block content %}
+
+{# ── Stat cards ─────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card text-center h-100 border-0 shadow-sm">
+            <div class="card-body py-3">
+                <div class="fs-1 fw-bold text-primary">{{ total }}</div>
+                <div class="text-body-secondary small">{{ _("index_total") }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center h-100 border-0 shadow-sm">
+            <div class="card-body py-3">
+                <div class="fs-1 fw-bold text-secondary">{{ usable_positions }}</div>
+                <div class="text-body-secondary small">{{ _("stats_positions") }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center h-100 border-0 shadow-sm">
+            <div class="card-body py-3">
+                <div class="fs-1 fw-bold text-success">{{ free_count }}</div>
+                <div class="text-body-secondary small">{{ _("index_free") }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center h-100 border-0 shadow-sm">
+            <div class="card-body py-3">
+                <div class="fs-1 fw-bold
+                    {%- if occupancy_pct >= 90 %} text-danger
+                    {%- elif occupancy_pct >= 70 %} text-warning
+                    {%- else %} text-success{% endif %}">
+                    {{ occupancy_pct }}%
+                </div>
+                <div class="text-body-secondary small">{{ _("stats_occupancy") }}</div>
+                <div class="progress mt-2" style="height:6px;" role="progressbar"
+                     aria-valuenow="{{ occupancy_pct }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar
+                        {%- if occupancy_pct >= 90 %} bg-danger
+                        {%- elif occupancy_pct >= 70 %} bg-warning
+                        {%- else %} bg-success{% endif %}"
+                         style="width:{{ occupancy_pct }}%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Main content row ────────────────────────────────────────────────────── #}
 <div class="row g-3">
-    <div class="col-12 col-lg-4">
-        <div class="card">
+
+    {# ── Next free position + free position cloud ── #}
+    <div class="col-12 col-lg-5">
+        <div class="card h-100 border-0 shadow-sm">
             <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-archive"></i> {{ _("index_title") }}</h5>
-                <ul class="list-group">
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        {{ _("index_total") }}
-                        <span class="badge text-bg-primary rounded-pill">{{ total }}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        {{ _("wl_position") }}
-                        <span class="badge text-bg-warning rounded-pill">{{ total }}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        {{ _("index_free") }}
-                        <span class="badge text-bg-success rounded-pill">{{ free_count }}</span>
-                    </li>
-                </ul>
-                <a class="btn btn-primary mt-3" href="{{ url_for('create_wheelset') }}">
-                    <i class="bi bi-plus-circle"></i> {{ _("wl_add") }}
+                <h5 class="card-title">
+                    <i class="bi bi-lightbulb me-1"></i> {{ _("index_next_free") }}
+                </h5>
+                {% if next_free %}
+                {% set cls = 'pos-container' if next_free.startswith('C') else 'pos-garage' %}
+                <p class="mb-2">
+                    <span class="badge pos-badge pos-badge-lg {{ cls }}">{{ next_free }}</span>
+                </p>
+                <a class="btn btn-success btn-sm mb-3"
+                   href="{{ url_for('create_wheelset', suggested=next_free) }}">
+                    <i class="bi bi-plus-lg"></i> {{ _("wl_add") }}
                 </a>
+                {% else %}
+                <p class="text-danger mb-3">{{ _("pos_none_free") }}</p>
+                {% endif %}
+                <div class="small text-body-secondary mb-1">{{ _("pos_free") }}</div>
+                {% if free_positions %}
+                <div class="pos-cloud">
+                    {% for p in free_positions[:24] %}
+                    {% set cls = 'pos-container' if p.startswith('C') else 'pos-garage' %}
+                    <a class="btn pos-btn {{ cls }}"
+                       href="{{ url_for('create_wheelset', suggested=p) }}"
+                       title="{{ _('wl_add') }} @ {{ p }}">{{ p }}</a>
+                    {% endfor %}
+                </div>
+                {% if free_positions|length > 24 %}
+                <div class="mt-2">
+                    <a href="{{ url_for('positions') }}" class="small">
+                        +{{ free_positions|length - 24 }} …
+                    </a>
+                </div>
+                {% endif %}
+                {% else %}
+                <p class="small">{{ _("pos_none_free") }}</p>
+                {% endif %}
             </div>
         </div>
     </div>
 
-    <div class="col-12 col-lg-8">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-lightbulb"></i> {{ _("index_next_free") }}</h5>
-                {% if next_free %}
-                {% set cls = 'pos-container' if next_free.startswith('C') else 'pos-garage' %}
-                <p><span class="badge pos-badge pos-badge-lg {{ cls }}">{{ next_free }}</span></p>
-                <a class="btn btn-success" href="{{ url_for('create_wheelset', suggested=next_free) }}">
-                    <i class="bi bi-plus-lg"></i> {{ _("wl_add") }}
-                </a>
-                {% else %}
-                <p class="text-danger">{{ _("pos_none_free") }}</p>
-                {% endif %}
-                <hr>
-                <h6>{{ _("pos_free") }}</h6>
-                {% if free_positions %}
-                <div class="pos-cloud">
-                    {% for p in free_positions[:30] %}
-                    {% set cls = 'pos-container' if p.startswith('C') else 'pos-garage' %}
-                    <a class="btn pos-btn {{ cls }}" href="{{ url_for('create_wheelset', suggested=p) }}"
-                        title="{{ _('wl_add') }} @ {{ p }}">{{ p }}</a>
-                    {% endfor %}
+    {# ── Right column: recent activity + top vehicles ── #}
+    <div class="col-12 col-lg-7">
+        <div class="row g-3">
+
+            {# Recent activity #}
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header py-2 border-0 bg-transparent">
+                        <span class="fw-semibold">
+                            <i class="bi bi-clock-history me-1"></i>{{ _("stats_recent") }}
+                        </span>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        {% if recent_activity %}
+                        {% for entry in recent_activity %}
+                        <li class="list-group-item d-flex align-items-center gap-2 py-2">
+                            {% if entry.action == 'create' %}
+                            <span class="badge text-bg-success">{{ _("stats_action_create") }}</span>
+                            {% elif entry.action == 'update' %}
+                            <span class="badge text-bg-primary">{{ _("stats_action_update") }}</span>
+                            {% elif entry.action == 'delete' %}
+                            <span class="badge text-bg-danger">{{ _("stats_action_delete") }}</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">{{ _("stats_action_backup") }}</span>
+                            {% endif %}
+                            <span class="small text-truncate flex-grow-1">
+                                {{ entry.details or "—" }}
+                            </span>
+                            <span class="text-body-secondary small text-nowrap ms-auto">
+                                {{ entry.created_at.strftime("%d.%m. %H:%M") }}
+                            </span>
+                        </li>
+                        {% endfor %}
+                        {% else %}
+                        <li class="list-group-item text-body-secondary small py-2">
+                            {{ _("stats_no_activity") }}
+                        </li>
+                        {% endif %}
+                    </ul>
                 </div>
-                {% if free_positions|length > 30 %}
-                <div class="mt-2"><a href="{{ url_for('positions') }}">…</a></div>
-                {% endif %}
-                {% else %}
-                <p>{{ _("pos_none_free") }}</p>
-                {% endif %}
             </div>
+
+            {# Top vehicles #}
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header py-2 border-0 bg-transparent">
+                        <span class="fw-semibold">
+                            <i class="bi bi-bar-chart-fill me-1"></i>{{ _("stats_top_cars") }}
+                        </span>
+                    </div>
+                    <div class="card-body py-2">
+                        {% if top_cars %}
+                        {% for car_type, cnt in top_cars %}
+                        {% set bar_pct = (cnt / total * 100) | int if total > 0 else 0 %}
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between small mb-1">
+                                <span class="text-truncate me-2">{{ car_type }}</span>
+                                <span class="fw-semibold text-nowrap">{{ cnt }}</span>
+                            </div>
+                            <div class="progress" style="height:8px;" role="progressbar"
+                                 aria-valuenow="{{ bar_pct }}" aria-valuemin="0" aria-valuemax="100">
+                                <div class="progress-bar bg-primary" style="width:{{ bar_pct }}%"></div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <p class="text-body-secondary small mb-0">{{ _("stats_no_cars") }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>

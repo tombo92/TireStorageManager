@@ -8,6 +8,7 @@ on:
       - 'static/**'
       - 'requirements*.txt'
       - 'pyproject.toml'
+      - '.github/workflows/**'
   pull_request:
     paths:
       - '**.py'
@@ -15,6 +16,7 @@ on:
       - 'static/**'
       - 'requirements*.txt'
       - 'pyproject.toml'
+      - '.github/workflows/**'
 
 permissions:
   contents: write   # needed for version bump commits, tags, and releases
@@ -117,8 +119,10 @@ jobs:
   # JOB 2 – Build EXEs on Windows  (only on push, after tests pass)
   # ──────────────────────────────────────────────────────────────
   build:
-    needs: [ test, test-installer ]
-    if: github.event_name == 'push' && needs.test.result == 'success'
+    needs: [ test ]
+    if: >
+      github.event_name == 'push' &&
+      needs.test.result == 'success'
     runs-on: windows-latest
 
     steps:

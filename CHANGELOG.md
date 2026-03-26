@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Extended tire details** (optional feature flag in Settings) — each wheel set can store tyre manufacturer, tyre size, age/DOT, season (Sommer / Winter / Allwetter), rim type (Stahl / Alu), and a free-text exchange note. All columns are nullable; existing records are unaffected.
+- **Seasonal overdue detection** — when seasonal tracking is enabled, wheel sets stored past their seasonal exchange window are highlighted with a pulsing red row and a ⚠ warning icon. Rules: Sommer tyres are overdue Jan–Apr; Winter tyres are overdue Jul–Sep; swap windows May–Jun and Oct–Dec are not flagged.
+- Season badges with icons on the wheel set list (☀ Sommer, ❄ Winter, 🌦 Allwetter); the exchange note is shown as a tooltip on the badge.
+- Settings toggles for **Erweiterte Reifendaten** and **Saisonale Radverwaltung** (seasonal tracking is only available when extended tire details is enabled). Both flags are stored in the database and backwards-compatible via auto-migration.
 - **English language support** — the UI language can now be switched between German and English in Settings. Language choice is persisted per-installation in the database.
 - Lightweight dict-based i18n module (`tsm/i18n.py`) with ~80 translation keys; no `.po`/`.mo` compilation required — fully compatible with PyInstaller EXE builds.
 - Language selector dropdown in the Settings → Appearance card (🇩🇪 Deutsch / 🇬🇧 English).
