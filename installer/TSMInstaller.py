@@ -726,6 +726,12 @@ class ProgressWindow(tk.Toplevel):
             self._log(f"  Datenverzeichnis:         {self.data_dir}")
             self._log(f"  Dienst:                   {SERVICE_NAME}")
             self._log(f"  URL:  {url}")
+            self._log("")
+            self._log("  DNS-Hinweis für IT / Netzwerkadministrator:")
+            self._log(f"    {ip}  →  <wunschname>.ihre-domain.local")
+            self._log("  DNS-Eintrag im internen DNS-Server ergänzen,")
+            self._log("  damit ein Hostname statt der IP-Adresse")
+            self._log("  verwendet werden kann.")
             self._log("═" * 50)
             self._show_result_buttons(True, url)
 
@@ -775,7 +781,9 @@ class ProgressWindow(tk.Toplevel):
     def _step_shortcut(self):
         ip = get_primary_ipv4() or "localhost"
         url = f"http://{ip}:{self.port}/"
-        logic.create_desktop_shortcut(url, self.display_name, log=self._log)
+        icon = self.install_dir / f"{APP_NAME}.exe"
+        logic.create_desktop_shortcut(
+            url, self.display_name, icon_path=icon, log=self._log)
 
 
 # ========================================================

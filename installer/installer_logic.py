@@ -232,14 +232,16 @@ def create_update_task(
 def create_desktop_shortcut(
     url: str,
     display_name: str = "Reifenmanager",
+    icon_path: Optional[Path] = None,
     log: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Step 9 – create a .url Internet Shortcut on the All Users Desktop."""
     desktop = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"
     shortcut = desktop / f"{display_name}.url"
-    shortcut.write_text(
-        f"[InternetShortcut]\nURL={url}\n", encoding="utf-8"
-    )
+    content = f"[InternetShortcut]\nURL={url}\n"
+    if icon_path and icon_path.exists():
+        content += f"IconFile={icon_path}\nIconIndex=0\n"
+    shortcut.write_text(content, encoding="utf-8")
     if log:
         log(f"   ✓ Desktop-Verknüpfung erstellt: {shortcut}")
 
