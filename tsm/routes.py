@@ -360,11 +360,13 @@ def register_routes(app):
         "/settings/positions", methods=["GET", "POST"]
     )
     def settings_positions():
+        from tsm.positions import disable_position, enable_position
         db = SessionLocal()
         try:
             effective = get_effective_positions(db)
             defaults = list(SORTED_POSITIONS)
             is_custom = effective != defaults
+            disabled = get_disabled_positions(db)
             if request.method == "POST":
                 validate_csrf()
                 action = request.form.get("action")
@@ -374,8 +376,7 @@ def register_routes(app):
                     return redirect(
                         url_for("settings_positions"))
                 if action == "save":
-                    raw = request.form.get(
-                        "positions_text", "")
+                    raw = request.form.get("positions_text", "")
                     lines = [
                         ln.strip()
                         for ln in raw.splitlines()
@@ -389,9 +390,18 @@ def register_routes(app):
                     flash(_("positions_saved", n=len(lines)), "success")
                     return redirect(
                         url_for("settings_positions"))
+                if action == "toggle_disabled":
+                    code = request.form.get("code", "").strip()
+                    if code:
+                        if code in disabled:
+                            enable_position(db, code)
+                        else:
+                            disable_position(db, code)
+                    return redirect(url_for("settings_positions"))
             return render_template(
                 "settings_positions.html",
                 positions=effective,
+                disabled=disabled,
                 is_custom=is_custom,
                 active="settings",
             )
