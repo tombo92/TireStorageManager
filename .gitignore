@@ -221,7 +221,11 @@ logs/
 backups/
 *.csv
 payload/TireStorageManager.exe
+payload/PRERELEASE
 build/
 dist/
 
+# Code signing — never commit the PFX
+*.pfx
+tools/tsm_codesign.pfx
 

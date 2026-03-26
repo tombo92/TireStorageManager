@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h3>{{ 'Radsatz bearbeiten' if editing else 'Neuen Radsatz anlegen' }}</h3>
-<form method="post" class="row g-3">
+<form method="post" class="row g-3" id="wheelsetForm">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="col-md-6">
         <label class="form-label">Kundenname *</label>
@@ -9,9 +9,29 @@
             value="{{ w.customer_name if w else '' }}">
     </div>
     <div class="col-md-6">
-        <label class="form-label">Kennzeichen *</label>
-        <input type="text" class="form-control" name="license_plate" required
-            value="{{ w.license_plate if w else '' }}">
+        <label class="form-label" for="license_plate">Kennzeichen *</label>
+        <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-car-front-fill"></i></span>
+            <input type="text"
+                   class="form-control text-uppercase font-monospace"
+                   id="license_plate"
+                   name="license_plate"
+                   required
+                   autocomplete="off"
+                   spellcheck="false"
+                   maxlength="15"
+                   placeholder="z. B. B-TB 3005"
+                   value="{{ w.license_plate if w else '' }}"
+                   aria-describedby="plateFeedback">
+        </div>
+        <div id="plateFeedback" class="form-text plate-hint">
+            Format: <code>ORT-KK 1234</code> &mdash; Unterscheidungszeichen,
+            Erkennungsbuchstaben, Ziffern (optionales <code>E</code> oder <code>H</code>).<br>
+            Beispiele: <code>B-TB 3005</code>, <code>LOS-ZE 123</code>, <code>M-AB 1234 H</code>.
+        </div>
+        <div class="invalid-feedback" id="plateError">
+            Ungültiges deutsches Kennzeichen (z.&nbsp;B. B-TB 3005, LOS-ZE 123 H).
+        </div>
     </div>
     <div class="col-md-6">
         <label class="form-label">Fahrzeugtyp *</label>

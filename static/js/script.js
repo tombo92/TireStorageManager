@@ -1,5 +1,138 @@
 // TireStorage Manager UI helpers
 // - Position size zoom (A-/A+) with persistence (localStorage)
+// - Splash screen on first visit per session
+// - Licence plate live validator (uppercase + validity indicator only)
+
+// =========================================================
+//  German licence-plate validator
+// =========================================================
+(function () {
+  // Matches the same pattern as the Python server-side validator:
+  //   1–3 letters (Unterscheidungszeichen)
+  //   optional separator (space or hyphen)
+  //   1–2 letters (Erkennungsbuchstaben)
+  //   optional separator
+  //   1–4 digits
+  //   optional separator + E or H suffix
+  var PLATE_RE = /^[A-ZÄÖÜ]{1,3}[\s\-]?[A-Z]{1,2}[\s\-]?\d{1,4}([\s\-]?[EH])?$/i;
+
+  function validatePlate(value) {
+    return PLATE_RE.test(value.trim());
+  }
+
+  function initPlateInput() {
+    var input = document.getElementById('license_plate');
+    if (!input) return;
+
+    var form = input.closest('form');
+
+    // Live: uppercase while typing (preserve caret) + update validity indicator
+    input.addEventListener('input', function () {
+      var pos   = input.selectionStart;
+      var upper = input.value.toUpperCase();
+      if (upper !== input.value) {
+        input.value = upper;
+        input.setSelectionRange(pos, pos);
+      }
+      updateState(input.value);
+    });
+
+    // On blur: only update the validity indicator, never rewrite the value
+    input.addEventListener('blur', function () {
+      if (input.value.trim()) {
+        updateState(input.value);
+      }
+    });
+
+    // Block form submit if plate is invalid
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        if (input.value.trim() && !validatePlate(input.value)) {
+          input.classList.add('is-invalid');
+          input.classList.remove('is-valid');
+          input.focus();
+          e.preventDefault();
+        }
+      });
+    }
+
+    // Show validity indicator for a pre-filled value (edit form)
+    if (input.value.trim()) {
+      updateState(input.value);
+    }
+
+    function updateState(val) {
+      if (!val.trim()) {
+        input.classList.remove('is-valid', 'is-invalid');
+        return;
+      }
+      if (validatePlate(val)) {
+        input.classList.add('is-valid');
+        input.classList.remove('is-invalid');
+      } else {
+        input.classList.add('is-invalid');
+        input.classList.remove('is-valid');
+      }
+    }
+  }
+
+  // Also upper-case the confirm_plate field on the delete page
+  function initConfirmPlate() {
+    var inp = document.getElementById('confirm_plate');
+    if (!inp) return;
+    inp.addEventListener('input', function () {
+      var pos = inp.selectionStart;
+      var up  = inp.value.toUpperCase();
+      if (up !== inp.value) {
+        inp.value = up;
+        inp.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    initPlateInput();
+    initConfirmPlate();
+  });
+})();
+
+
+// =========================================================
+//  Splash / Loading Screen (once per browser session)
+// =========================================================
+(function () {
+  const KEY = 'tsm.splashShown';
+  const SPLASH_DURATION_MS = 2400;   // matches CSS progress bar animation
+
+  function initSplash() {
+    const splash = document.getElementById('splashScreen');
+    if (!splash) return;
+
+    // Already shown this session? Remove immediately.
+    try {
+      if (sessionStorage.getItem(KEY)) {
+        splash.remove();
+        return;
+      }
+    } catch (_) { /* private mode – show splash anyway */ }
+
+    // Mark as shown for this session
+    try { sessionStorage.setItem(KEY, '1'); } catch (_) {}
+
+    // After the progress bar fills, fade out and remove
+    setTimeout(function () {
+      splash.classList.add('splash-hidden');
+      setTimeout(function () { splash.remove(); }, 700);
+    }, SPLASH_DURATION_MS);
+  }
+
+  // Run immediately (script is at end of <body>)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSplash);
+  } else {
+    initSplash();
+  }
+})();
 
 (function () {
   const KEY = "tsm.posZoom";               // 'normal' | '125' | '150'
@@ -216,4 +349,158 @@
 
   // Expose for the main IIFE
   window.initIdleScreensaver = initIdleScreensaver;
+})();
+
+// =========================================================
+//  Update check – AJAX polling on page load + settings page
+// =========================================================
+(function () {
+  var BANNER_DISMISSED_KEY = 'tsm.updateBannerDismissed';
+
+  /**
+   * Simple Markdown-to-HTML converter for release notes.
+   * Handles: headers, bold, italic, lists, links, line breaks.
+   */
+  function simpleMarkdown(md) {
+    if (!md) return '';
+    var html = md
+      // Escape HTML entities
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      // Headers (### → <h6>, ## → <h5>)
+      .replace(/^### (.+)$/gm, '<h6 class="mt-2 mb-1">$1</h6>')
+      .replace(/^## (.+)$/gm, '<h5 class="mt-2 mb-1">$1</h5>')
+      // Bold and italic
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      // Unordered list items
+      .replace(/^[*-] (.+)$/gm, '<li>$1</li>')
+      // Links [text](url)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+        '<a href="$2" target="_blank" class="alert-link">$1</a>')
+      // Line breaks
+      .replace(/\n/g, '<br>');
+    // Wrap consecutive <li> in <ul>
+    html = html.replace(/((?:<li>.*?<\/li><br>?)+)/g, function (m) {
+      return '<ul class="mb-1">' + m.replace(/<br>/g, '') + '</ul>';
+    });
+    return html;
+  }
+
+  function handleUpdateInfo(data) {
+    // ── Banner (all pages) ──
+    var banner = document.getElementById('updateBanner');
+    if (banner && data.update_available) {
+      var dismissed = null;
+      try { dismissed = sessionStorage.getItem(BANNER_DISMISSED_KEY); } catch (_) {}
+      if (dismissed !== data.remote_version) {
+        document.getElementById('bannerRemoteVersion').textContent =
+          'v' + data.remote_version;
+        var autoMsg = document.getElementById('bannerAutoMsg');
+        if (autoMsg) {
+          autoMsg.textContent = ' Das Update wird beim nächsten Service-Neustart installiert.';
+        }
+        if (data.release_url) {
+          var link = document.getElementById('bannerReleaseLink');
+          if (link) {
+            link.href = data.release_url;
+            link.classList.remove('d-none');
+          }
+        }
+        banner.classList.remove('d-none');
+        banner.classList.add('show');
+        // When user dismisses, remember for this session+version
+        banner.addEventListener('closed.bs.alert', function () {
+          try {
+            sessionStorage.setItem(BANNER_DISMISSED_KEY, data.remote_version);
+          } catch (_) {}
+        });
+      }
+    }
+
+    // ── Settings page elements ──
+    var remoteEl = document.getElementById('updateRemoteVersion');
+    var upToDateEl = document.getElementById('updateUpToDate');
+    var updateNowForm = document.getElementById('updateNowForm');
+    var releaseNotesDiv = document.getElementById('updateReleaseNotes');
+
+    if (remoteEl && upToDateEl) {
+      if (data.update_available) {
+        remoteEl.querySelector('strong').textContent = 'v' + data.remote_version;
+        remoteEl.classList.remove('d-none');
+        upToDateEl.classList.add('d-none');
+        if (updateNowForm) updateNowForm.classList.remove('d-none');
+        if (releaseNotesDiv && data.release_notes) {
+          releaseNotesDiv.querySelector('.update-release-body').innerHTML =
+            simpleMarkdown(data.release_notes);
+          releaseNotesDiv.classList.remove('d-none');
+        }
+      } else if (data.remote_version) {
+        remoteEl.classList.add('d-none');
+        upToDateEl.classList.remove('d-none');
+        if (updateNowForm) updateNowForm.classList.add('d-none');
+        if (releaseNotesDiv) releaseNotesDiv.classList.add('d-none');
+      }
+    }
+  }
+
+  function checkForUpdate(forceRefresh) {
+    var opts = { method: 'GET' };
+    var url = '/api/update-check';
+
+    if (forceRefresh) {
+      // POST with CSRF to force cache invalidation
+      var csrfMeta = document.querySelector('input[name="_csrf_token"]');
+      var token = csrfMeta ? csrfMeta.value : '';
+      opts = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '_csrf_token=' + encodeURIComponent(token)
+      };
+    }
+
+    fetch(url, opts)
+      .then(function (r) { return r.json(); })
+      .then(handleUpdateInfo)
+      .catch(function () { /* silent — no network */ });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    // Auto-check on every page load (GET, cached server-side)
+    checkForUpdate(false);
+
+    // Settings page: "Check now" button forces a fresh fetch
+    var btn = document.getElementById('btnCheckUpdate');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Prüfe …';
+        // POST forces cache invalidation, then re-fetch
+        var csrfInput = document.querySelector('input[name="_csrf_token"]');
+        var token = csrfInput ? csrfInput.value : '';
+        fetch('/api/update-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: '_csrf_token=' + encodeURIComponent(token)
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            handleUpdateInfo(data);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
+            if (!data.update_available) {
+              btn.innerHTML = '<i class="bi bi-check-circle text-success"></i> Aktuell';
+              setTimeout(function () {
+                btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
+              }, 3000);
+            }
+          })
+          .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
+          });
+      });
+    }
+  });
 })();

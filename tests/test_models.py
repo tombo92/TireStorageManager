@@ -64,6 +64,45 @@ def test_create_settings(db_session):
     assert s.id is not None
 
 
+def test_settings_dark_mode_default(db_session):
+    s = Settings(backup_interval_minutes=60, backup_copies=10)
+    db_session.add(s)
+    db_session.commit()
+    assert s.dark_mode is False
+
+
+def test_settings_dark_mode_toggle(db_session):
+    s = Settings(
+        backup_interval_minutes=60,
+        backup_copies=10,
+        dark_mode=True,
+    )
+    db_session.add(s)
+    db_session.commit()
+    assert s.dark_mode is True
+
+
+def test_settings_custom_positions_json(db_session):
+    import json
+    positions = ["A1", "A2", "B1"]
+    s = Settings(
+        backup_interval_minutes=60,
+        backup_copies=10,
+        custom_positions_json=json.dumps(positions),
+    )
+    db_session.add(s)
+    db_session.commit()
+    loaded = json.loads(s.custom_positions_json)
+    assert loaded == positions
+
+
+def test_settings_custom_positions_null_by_default(db_session):
+    s = Settings(backup_interval_minutes=60, backup_copies=10)
+    db_session.add(s)
+    db_session.commit()
+    assert s.custom_positions_json is None
+
+
 def test_create_audit_log(db_session):
     log = AuditLog(action="test", details="unit test entry")
     db_session.add(log)

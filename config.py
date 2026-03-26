@@ -19,8 +19,11 @@ from pathlib import Path
 # ========================================================
 # GLOBALS
 # ========================================================
-VERSION = "1.4.0"
+VERSION = "1.4.6"
 APP_NAME = os.environ.get("TSM_APP_NAME", "Reifenmanager")
+
+# Set to "1" by the CI on develop builds — signals a pre-release/test build
+IS_PRERELEASE: bool = os.environ.get("TSM_PRERELEASE", "0") == "1"
 
 BASE_DIR = Path(__file__).resolve().parent
 
