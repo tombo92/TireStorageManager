@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.7] – 2026-03-27
+
 ### Changed
 - **CI/CD pipeline restructured into a single `ci.yml`** with clearly separated jobs:
   - `changes` — path-change detection
