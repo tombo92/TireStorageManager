@@ -18,6 +18,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **CI/CD pipeline restructured into a single `ci.yml`** with clearly separated jobs:
+  - `changes` — path-change detection
+  - `test-app` — unit tests (all branches/PRs)
+  - `test-installer` — installer unit tests (only when `installer/` changed)
+  - `bump` — version bump artifact (master/develop only)
+  - `build` — Windows EXE build, code signing, artifact upload (all branches/PRs)
+  - `smoke` — EXE smoke tests as a separate job (all branches/PRs)
+  - `commit-bump` — commits version bump and git tag (master/develop, requires smoke + test-installer pass)
+  - `release` — creates GitHub Release (master/develop, requires smoke + test-installer pass)
+- Build and EXE smoke tests now run on **every branch and PR** (not only `master`/`develop`). Version bump commit and release are still restricted to `master`/`develop`.
+- `commit-bump` and `release` are now blocked if `smoke` or `test-installer` fail — a failing smoke or installer test prevents any version from being committed or released. Both jobs may be skipped (no change in their scope), but never silently ignored.
+- Installer `restore-db` headless CLI mode and `RestoreProgressWindow` GUI for restoring a database from a backup file with schema validation.
+- `validate_sqlite_file()` extended with schema validation — checks required tables (`wheel_sets`, `settings`, `audit_log`) and mandatory columns via `sqlite3` read-only URI mode before accepting a restore candidate.
+- Secret key (`TSM_SECRET_KEY`) field in installer GUI marked as optional with explanatory hint text.
+
 ## [1.5.6] – 2026-03-27
 
 ## [1.5.5] – 2026-03-27

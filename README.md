@@ -222,14 +222,35 @@ Exit code `0` = all checks passed. Exit code `1` = one or more failures (details
 
 ## CI/CD
 
-GitHub Actions pipeline (`.github/workflows/ci.yml`) — single workflow, 4 jobs:
+The entire pipeline is defined in a single `.github/workflows/ci.yml` with clearly separated jobs:
 
-| Job | Runner | Trigger | What it does |
-| --- | --- | --- | --- |
-| `bump` | `ubuntu-latest` | push to **master/develop** only | Bumps VERSION (patch on develop, minor on master) |
-| `test` | `ubuntu-latest` | **every push & PR** (all branches) | Runs the full pytest suite |
-| `build` | `windows-latest` | **every push** (all branches) after `test` passes | Builds both EXEs, smoke test, optional code signing |
-| `release` | `ubuntu-latest` | after `build` succeeds on **master/develop** only | Creates GitHub Release (official on master, pre-release on develop) |
+| Job | Description |
+|---|---|
+| `changes` | Path-change detection — determines whether app or installer files changed |
+| `test-app` | Unit tests — runs on every branch and PR |
+| `test-installer` | Installer unit tests — only when `installer/` changed; blocks release if it fails |
+| `bump` | Version bump artifact — master/develop only, skipped on feature branches |
+| `build` | Windows EXE build, code signing, artifact upload — every branch and PR |
+| `smoke` | EXE smoke tests — separate job, every branch and PR; blocks release if it fails |
+| `commit-bump` | Commits bumped version and pushes git tag — master/develop only, requires smoke + test-installer pass |
+| `release` | Creates GitHub Release — master/develop only, requires smoke + test-installer pass |
+
+### Job execution per branch type
+
+| Job | `feature/*` branch / PR | `develop` | `master` |
+|---|---|---|---|
+| `changes` (path filter) | ✅ | ✅ | ✅ |
+| `test-app` (unit tests) | ✅ | ✅ | ✅ |
+| `test-installer` (installer tests) | ✅ if `installer/` changed | ✅ if `installer/` changed | ✅ if `installer/` changed |
+| `build` (compile EXEs, sign, upload) | ✅ | ✅ | ✅ |
+| `smoke` (EXE smoke tests) | ✅ | ✅ | ✅ |
+| `bump` (version bump) | ❌ | ✅ patch bump | ✅ minor bump |
+| `commit-bump` (commit & tag) | ❌ | ✅ (if smoke + installer pass) | ✅ (if smoke + installer pass) |
+| `release` (GitHub Release) | ❌ | ✅ pre-release | ✅ official release |
+
+Version bump is only triggered when app source files change (`tsm/`, `templates/`, `static/`, `config.py`, `requirements.txt`). CI/tool/doc-only changes do not produce a new version.
+
+Bot commits (`github-actions[bot]`) are excluded from triggering `build` to prevent infinite loops.
 
 ---
 

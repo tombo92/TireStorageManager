@@ -77,6 +77,8 @@ ERROR_CLR = "#ef4444"
 # UTILITY HELPERS
 # ========================================================
 def is_admin() -> bool:
+    """Check if the application is running with administrative privileges.
+    """
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
