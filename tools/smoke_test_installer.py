@@ -29,6 +29,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 # Force UTF-8 output on Windows CI runners whose default stdout codec
 # (cp1252) cannot encode the Unicode box-drawing / tick characters used
@@ -72,6 +73,7 @@ def _run_installer(
     *,
     keep_data: bool = False,
     shortcut: bool = False,
+    source_db: Optional[Path] = None,
     timeout: int = 120,
 ) -> tuple[int, str]:
     """Run TSM-Installer.exe in headless mode.
@@ -91,6 +93,8 @@ def _run_installer(
         cmd.append("--keep-data")
     if shortcut:
         cmd.append("--shortcut")
+    if source_db is not None:
+        cmd += ["--source-db", str(source_db)]
 
     lines: list[str] = []
     proc = subprocess.Popen(
@@ -427,6 +431,114 @@ def run_restart_checks(port: int) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Restore-DB suite
+# ──────────────────────────────────────────────────────────────────────
+_SQLITE_HEADER = b"SQLite format 3\x00" + b"\x00" * 84
+
+
+def _make_valid_sqlite(path: Path) -> None:
+    """Write a minimal SQLite file with the required app tables."""
+    import sqlite3 as _sql
+    con = _sql.connect(str(path))
+    try:
+        con.executescript("""
+            CREATE TABLE wheel_sets (
+                id INTEGER PRIMARY KEY,
+                customer_name TEXT NOT NULL,
+                license_plate TEXT NOT NULL,
+                car_type TEXT NOT NULL,
+                storage_position TEXT NOT NULL
+            );
+            CREATE TABLE settings (
+                id INTEGER PRIMARY KEY,
+                backup_interval_minutes INTEGER NOT NULL,
+                backup_copies INTEGER NOT NULL
+            );
+            CREATE TABLE audit_log (
+                id INTEGER PRIMARY KEY,
+                action TEXT NOT NULL
+            );
+        """)
+        con.commit()
+    finally:
+        con.close()
+
+
+def _make_corrupt_file(path: Path) -> None:
+    path.write_bytes(b"this is not a database")
+
+
+def run_restore_db_checks(
+    exe: Path,
+    install_dir: Path,
+    data_dir: Path,
+    port: int,
+) -> None:
+    """Verify restore-db action: valid restore, corrupt reject, service up."""
+    _ts = datetime.now().strftime("%H:%M:%S")
+    print(f"\n-- Restore-DB [{_ts}] ------------------------------------")
+
+    db_dir = data_dir / "db"
+    backup_dir = data_dir / "backups"
+    live_db = db_dir / "wheel_storage.db"
+    restore_src = data_dir / "restore_candidate.db"
+    corrupt_src = data_dir / "corrupt_candidate.db"
+
+    # ── Reject corrupt / non-SQLite file ─────────────────────────────
+    _make_corrupt_file(corrupt_src)
+    rc_corrupt, out_corrupt = _run_installer(
+        exe, "restore-db", install_dir, data_dir, port,
+        source_db=corrupt_src,
+    )
+    _check(
+        "Corrupt DB rejected (non-zero exit)",
+        rc_corrupt != 0,
+        f"exit code was {rc_corrupt}",
+    )
+    _check(
+        "Corrupt DB rejection message printed",
+        "fehler" in out_corrupt.lower() or "header" in out_corrupt.lower(),
+    )
+
+    # ── Service still running after rejected restore ──────────────────
+    _check(
+        "Service still running after rejected restore",
+        _service_state() == "RUNNING",
+    )
+
+    # ── Successful restore ────────────────────────────────────────────
+    _make_valid_sqlite(restore_src)
+    backups_before = set(backup_dir.glob("wheel_storage_*.db"))
+    rc_ok, _ = _run_installer(
+        exe, "restore-db", install_dir, data_dir, port,
+        source_db=restore_src,
+    )
+    _check("Restore exited 0", rc_ok == 0, f"exit code {rc_ok}")
+
+    # Backup of the old DB must have been created.
+    if live_db.exists():
+        backups_after = set(backup_dir.glob("wheel_storage_*.db"))
+        new_backups = backups_after - backups_before
+        _check(
+            "Backup of old DB created in backups/",
+            len(new_backups) >= 1,
+        )
+
+    # Live DB replaced with restore candidate content.
+    _check(
+        "Live DB replaced with restore candidate",
+        live_db.exists()
+        and live_db.read_bytes()[:16] == b"SQLite format 3\x00",
+    )
+
+    # ── Service back up after successful restore ──────────────────────
+    _check(
+        f"Service responds on :{port} after restore (HTTP 200)",
+        _http_ok(port, timeout=30),
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Uninstall suite
 # ──────────────────────────────────────────────────────────────────────
 def run_uninstall_checks(
@@ -514,6 +626,7 @@ def main() -> int:
     try:
         run_install_checks(exe, install_dir, data_dir, args.port)
         run_restart_checks(args.port)
+        run_restore_db_checks(exe, install_dir, data_dir, args.port)
         run_uninstall_checks(exe, install_dir, data_dir, args.port)
     except KeyboardInterrupt:
         print("\nInterrupted.", flush=True)
