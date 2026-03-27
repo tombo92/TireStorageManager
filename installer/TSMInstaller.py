@@ -32,6 +32,7 @@ Build:
 """
 from __future__ import annotations
 
+import argparse
 import ctypes
 import os
 import socket
@@ -410,13 +411,9 @@ class InstallerApp(tk.Tk):
     def _on_install(self):
         # Validate port
         try:
-            port = int(self.var_port.get())
-            if not 1 <= port <= 65535:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror(
-                "Ungültiger Port",
-                "Port muss zwischen 1 und 65535 liegen.")
+            port = logic.validate_port(self.var_port.get())
+        except ValueError as exc:
+            messagebox.showerror("Ungültiger Port", str(exc))
             return
 
         install_dir = Path(self.var_install.get()).resolve()
@@ -428,7 +425,8 @@ class InstallerApp(tk.Tk):
                 "Bitte beide Verzeichnisse angeben.")
             return
 
-        display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
+        display_name = logic.resolve_display_name(
+            self.var_display_name.get())
         secret_key = self.var_secret_key.get().strip()
         shortcut = self.var_shortcut.get()
 
@@ -480,7 +478,7 @@ class InstallerApp(tk.Tk):
 
         self.btn_install.configure(state="disabled")
         self.btn_uninstall.configure(state="disabled")
-        display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
+        display_name = logic.resolve_display_name(self.var_display_name.get())
         self._save_settings()
         UninstallProgressWindow(
             self, install_dir, data_dir,
@@ -968,7 +966,152 @@ class UninstallProgressWindow(tk.Toplevel):
 # ========================================================
 # ENTRY POINT
 # ========================================================
+def _run_headless(args: argparse.Namespace) -> int:
+    """Install or uninstall without a GUI.
+
+    Returns 0 on success, 1 on failure.
+    Used by CI smoke tests to verify the compiled EXE end-to-end.
+    """
+    log_lines: list[str] = []
+
+    def log(msg: str) -> None:
+        print(msg, flush=True)
+        log_lines.append(msg)
+
+    install_dir = Path(args.install_dir).resolve()
+    data_dir = Path(args.data_dir).resolve()
+
+    if args.action == "install":
+        port = logic.validate_port(str(args.port))
+        display_name = logic.resolve_display_name(args.display_name or "")
+
+        nssm_src = resource_path(PAYLOAD_NSSM)
+        app_src = resource_path(PAYLOAD_APP)
+        seed_db = resource_path(PAYLOAD_SEED_DB)
+        try:
+            logic.create_directories(
+                install_dir, data_dir, log=log)
+            nssm = logic.deploy_nssm(
+                nssm_src, install_dir, log=log)
+            app_exe = logic.deploy_app_exe(
+                app_src, install_dir, log=log)
+            logic.seed_database(
+                seed_db, data_dir, log=log)
+            logic.add_firewall_rule(port, log=log)
+            logic.install_service(
+                nssm, app_exe, data_dir, port,
+                install_dir,
+                display_name=display_name,
+                log=log)
+            logic.start_service(nssm, log=log)
+            logic.create_update_task(log=log)
+            if args.shortcut:
+                ip = get_primary_ipv4() or "localhost"
+                url = f"http://{ip}:{port}/"
+                logic.create_desktop_shortcut(
+                    url, display_name,
+                    icon_path=install_dir / f"{APP_NAME}.exe",
+                    log=log)
+        except Exception as exc:
+            print(f"✗ FEHLER: {exc}", flush=True)
+            return 1
+        return 0
+
+    if args.action == "uninstall":
+        port = logic.validate_port(str(args.port))
+        display_name = logic.resolve_display_name(
+            args.display_name or "")
+        try:
+            logic.stop_service(install_dir, log=log)
+            logic.remove_service(install_dir, log=log)
+            logic.remove_scheduled_task(log=log)
+            logic.remove_firewall_rules(extra_port=port, log=log)
+            logic.remove_desktop_shortcut(display_name, log=log)
+            if not args.keep_data:
+                logic.remove_data_dir(data_dir, log=log)
+            logic.remove_install_dir(install_dir, log=log)
+        except Exception as exc:
+            print(f"✗ FEHLER: {exc}", flush=True)
+            return 1
+        return 0
+
+    print(f"Unknown action: {args.action}", flush=True)
+    return 1
+
+
 def main():
+    # In headless mode the EXE writes to a pipe whose codec defaults to
+    # cp1252 on Windows.  Reconfigure to UTF-8 before any print() call
+    # so the Unicode log characters (✓ ✗ ℹ …) don't crash the process.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+    parser = argparse.ArgumentParser(
+        prog="TSM-Installer",
+        description="TireStorageManager Installer/Uninstaller",
+        add_help=True,
+    )
+    parser.add_argument(
+        "--headless", action="store_true",
+        help="Run without GUI (for CI smoke tests).",
+    )
+    parser.add_argument(
+        "--action", choices=["install", "uninstall"],
+        help="Action to perform in headless mode.",
+    )
+    parser.add_argument(
+        "--install-dir", dest="install_dir",
+        help="Installation directory.",
+    )
+    parser.add_argument(
+        "--data-dir", dest="data_dir",
+        help="Data directory.",
+    )
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT,
+        help=f"HTTP port (default: {DEFAULT_PORT}).",
+    )
+    parser.add_argument(
+        "--display-name", dest="display_name",
+        default="", help="Windows Service display name.",
+    )
+    parser.add_argument(
+        "--shortcut", action="store_true",
+        help="Create desktop shortcut (install only).",
+    )
+    parser.add_argument(
+        "--keep-data", dest="keep_data", action="store_true",
+        help="Keep data directory on uninstall.",
+    )
+    parser.add_argument(
+        "--version", action="store_true",
+        help="Print version and exit.",
+    )
+
+    # parse_known_args so PyInstaller's bootloader args don't cause errors
+    args, _ = parser.parse_known_args()
+
+    if args.version:
+        try:
+            from config import VERSION  # type: ignore[import]
+            print(VERSION, flush=True)
+        except Exception:
+            print("unknown", flush=True)
+        return
+
+    if args.headless:
+        if not args.action:
+            parser.error(
+                "--headless requires --action install|uninstall")
+        if not args.install_dir or not args.data_dir:
+            parser.error(
+                "--headless requires --install-dir and --data-dir")
+        sys.exit(_run_headless(args))
+        return
+
+    # Normal GUI mode
     app = InstallerApp()
     app.mainloop()
 

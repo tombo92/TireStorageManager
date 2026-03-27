@@ -207,32 +207,85 @@ class TestStartService:
 
 
 class TestCreateUpdateTask:
-    @patch.object(logic, "run_shell", return_value=_ok(0))
+    @patch.object(logic, "run_cmd", return_value=_ok(0))
     def test_success(self, mock_run):
         msgs: list[str] = []
         logic.create_update_task(log=msgs.append)
         mock_run.assert_called_once()
         assert "Task" in msgs[0]
 
-    @patch.object(logic, "run_shell", return_value=_ok(1, stderr="fail"))
+    @patch.object(logic, "run_cmd", return_value=_ok(1, stderr="fail"))
     def test_failure_logged(self, mock_run):
         msgs: list[str] = []
         logic.create_update_task(log=msgs.append)
         assert "ℹ" in msgs[0]
 
-    @patch.object(logic, "run_shell", return_value=_ok(0))
+    @patch.object(logic, "run_cmd", return_value=_ok(0))
     def test_command_uses_cmd_c_wrapper(self, mock_run):
         """Regression: /TR must be wrapped in cmd /c so the shell
         evaluates the & operator.  Without it sc.exe stop runs but
-        sc.exe start never executes, leaving the service down."""
+        sc.exe start never executes, leaving the service down.
+        Implementation uses run_cmd (list, no shell=True) to avoid
+        double-escaping the /TR value."""
         logic.create_update_task()
-        cmd: str = mock_run.call_args[0][0]
+        # run_cmd receives a list; the /TR value is the element after "/TR"
+        args: list[str] = mock_run.call_args[0][0]
+        tr_index = args.index("/TR")
+        tr_value: str = args[tr_index + 1]
         # Must delegate to cmd /c so & is evaluated by the shell.
-        assert "cmd /c" in cmd
+        assert "cmd /c" in tr_value
         # Both stop and start must be present in the correct order.
-        assert "sc.exe stop" in cmd
-        assert "sc.exe start" in cmd
-        assert cmd.index("sc.exe stop") < cmd.index("sc.exe start")
+        assert "sc.exe stop" in tr_value
+        assert "sc.exe start" in tr_value
+        assert tr_value.index("sc.exe stop") < tr_value.index("sc.exe start")
+
+
+# ────────────────────────────────────────────────
+# VALIDATE PORT
+# ────────────────────────────────────────────────
+class TestValidatePort:
+    def test_valid_port(self):
+        assert logic.validate_port("5000") == 5000
+
+    def test_boundary_low(self):
+        assert logic.validate_port("1") == 1
+
+    def test_boundary_high(self):
+        assert logic.validate_port("65535") == 65535
+
+    def test_zero_raises(self):
+        with pytest.raises(ValueError):
+            logic.validate_port("0")
+
+    def test_above_max_raises(self):
+        with pytest.raises(ValueError):
+            logic.validate_port("65536")
+
+    def test_non_numeric_raises(self):
+        with pytest.raises(ValueError):
+            logic.validate_port("abc")
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError):
+            logic.validate_port("")
+
+    def test_float_string_raises(self):
+        with pytest.raises(ValueError):
+            logic.validate_port("80.5")
+
+
+# ────────────────────────────────────────────────
+# RESOLVE DISPLAY NAME
+# ────────────────────────────────────────────────
+class TestResolveDisplayName:
+    def test_returns_stripped_value(self):
+        assert logic.resolve_display_name("  Mein App  ") == "Mein App"
+
+    def test_empty_falls_back_to_default(self):
+        assert logic.resolve_display_name("") == "Reifenmanager"
+
+    def test_whitespace_only_falls_back(self):
+        assert logic.resolve_display_name("   ") == "Reifenmanager"
 
 
 # ────────────────────────────────────────────────
@@ -409,8 +462,10 @@ class TestFullInstallSequence:
         assert (data / "logs").is_dir()
 
         # Verify subprocess calls happened
+        # create_update_task uses run_cmd (list, no shell=True) since the
+        # run_shell → run_cmd migration to fix schtasks quoting.
         assert mock_cmd.call_count > 0
-        assert mock_shell.call_count == 1  # schtasks
+        assert mock_shell.call_count == 0
 
     @patch.object(logic, "run_shell", return_value=_ok(0))
     @patch.object(logic, "run_cmd", return_value=_ok(0))
