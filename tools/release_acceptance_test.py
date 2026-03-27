@@ -363,6 +363,49 @@ def _make_db_missing_table(path: Path) -> None:
         con.close()
 
 
+def _wal_checkpoint(db_path: Path) -> bool:
+    """Force-merge the WAL file into the main SQLite database.
+
+    Must be called when no other process holds a lock on the DB
+    (i.e. after the app / service has fully exited).  This ensures
+    all committed rows are written to the main .db file and the
+    -wal / -shm files are cleaned up.
+
+    Retries up to 5 times with a 1-second sleep between attempts to
+    handle Windows' delayed file-handle release after TerminateProcess.
+
+    Returns True if the checkpoint succeeded, False otherwise.
+    """
+    if not db_path.exists():
+        print(f"    _wal_checkpoint: DB not found: {db_path}", flush=True)
+        return False
+    wal_path = db_path.parent / (db_path.name + "-wal")
+    if not wal_path.exists():
+        # No WAL file → nothing to checkpoint (data already in main DB)
+        return True
+    print(f"    _wal_checkpoint: WAL exists ({wal_path.stat().st_size} bytes)"
+          f" – merging into {db_path.name}", flush=True)
+    for attempt in range(1, 6):
+        try:
+            con = sqlite3.connect(str(db_path))
+            result = con.execute("PRAGMA wal_checkpoint(TRUNCATE);").fetchone()
+            con.close()
+            # result = (blocked, wal_pages, checkpointed_pages)
+            if result and result[0] == 0:
+                print(f"    _wal_checkpoint: OK on attempt {attempt} "
+                      f"(pages: {result[1]}/{result[2]})", flush=True)
+                return True
+            # blocked=1 means another connection held a lock
+            print(f"    _wal_checkpoint: blocked on attempt {attempt} "
+                  f"(result={result})", flush=True)
+        except sqlite3.Error as exc:
+            print(f"    _wal_checkpoint: attempt {attempt} failed: {exc}",
+                  flush=True)
+        time.sleep(1)
+    print("    _wal_checkpoint: FAILED after 5 attempts", flush=True)
+    return False
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Phase 1 – App EXE standalone
 # ══════════════════════════════════════════════════════════════════════
@@ -422,6 +465,33 @@ def phase1_app(app_exe: Path, port: int, data_dir: Path) -> None:
     _stop_app(proc)
     _check("App stopped cleanly", proc.poll() is not None)
 
+    # Windows needs a moment to fully release file handles after
+    # TerminateProcess (proc.terminate() on Windows is a hard kill).
+    time.sleep(2)
+
+    # Merge WAL into the main DB file now that the process has released
+    # its lock – this guarantees all 1b data survives the restart.
+    db_file = app_data / "db" / "wheel_storage.db"
+    ckpt_ok = _wal_checkpoint(db_file)
+    _check("WAL checkpoint succeeded after shutdown", ckpt_ok)
+
+    # If checkpoint couldn't merge the WAL, verify the data is at least
+    # readable through a direct SQLite query (WAL replay on open).
+    if not ckpt_ok:
+        try:
+            con = sqlite3.connect(str(db_file))
+            cur = con.execute(
+                "SELECT 1 FROM wheel_sets "
+                "WHERE license_plate = 'RAT-P 1' LIMIT 1",
+            )
+            found = cur.fetchone() is not None
+            con.close()
+            _check("RAT-P 1 in DB via direct SQLite (WAL replay)",
+                   found, "not found even via direct query")
+        except sqlite3.Error as exc:
+            _check("Direct SQLite query after failed checkpoint",
+                   False, str(exc))
+
     proc2 = _start_app(app_exe, port, app_data)
     _check(
         "App restarts on same port (data preserved)",
@@ -433,7 +503,7 @@ def phase1_app(app_exe: Path, port: int, data_dir: Path) -> None:
     _, body = _get(base, "/wheelsets")
     _check(
         "Wheelset data persists across restarts",
-        b"RAT-PERSIST" in body,
+        b"RAT-P 1" in body,
         "test record not found after restart",
     )
     _stop_app(proc2)
@@ -683,21 +753,29 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "RAT Customer",
-        "license_plate": "RAT-PERSIST",
+        "license_plate": "RAT-P 1",
         "car_type": "Sedan",
-        "storage_position": "A1ROL",
+        "storage_position": "C1ROL",
         "note": "release acceptance",
     })
     _check("Create wheelset (happy path)", code in (200, 302), f"got {code}")
+
+    # Verify the wheelset actually landed (catch silent validation rejections)
+    _, _hp_body = _get(base, "/wheelsets")
+    _check(
+        "Happy-path wheelset appears in list",
+        b"RAT-P 1" in _hp_body,
+        "POST succeeded but data not in /wheelsets",
+    )
 
     # Duplicate license plate (same customer)
     csrf = _get_csrf(base)
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "RAT Customer",
-        "license_plate": "RAT-PERSIST",
+        "license_plate": "RAT-P 1",
         "car_type": "Sedan",
-        "storage_position": "A1ROL",
+        "storage_position": "C1ROL",
         "note": "duplicate",
     })
     # App should either reject (4xx) or show a validation
@@ -729,9 +807,9 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": long_str,
-        "license_plate": "RAT-LONG",
+        "license_plate": "RAT-L 2",
         "car_type": long_str,
-        "storage_position": "A2ROL",
+        "storage_position": "C2ROL",
         "note": long_str,
     })
     _check(
@@ -745,9 +823,9 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "Müller & Söhne <script>",
-        "license_plate": "RAT-UNI1",
+        "license_plate": "RAT-U 3",
         "car_type": "Ümläut Coupé",
-        "storage_position": "B3ROL",
+        "storage_position": "C3ROL",
         "note": "unicode test",
     })
     _check(
@@ -768,9 +846,9 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "' OR '1'='1",
-        "license_plate": "RAT-SQLI",
+        "license_plate": "RAT-S 4",
         "car_type": "'; DROP TABLE wheel_sets; --",
-        "storage_position": "A1ROL",
+        "storage_position": "C4ROL",
         "note": "",
     })
     _check(
@@ -888,16 +966,16 @@ def _phase1e_security(base: str) -> None:
     _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "CSRF replay 1",
-        "license_plate": "RAT-CSRF1",
+        "license_plate": "RAT-C 5",
         "car_type": "X",
-        "storage_position": "A1ROL",
+        "storage_position": "C1LOR",
     })
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,  # replayed token
         "customer_name": "CSRF replay 2",
-        "license_plate": "RAT-CSRF2",
+        "license_plate": "RAT-C 6",
         "car_type": "X",
-        "storage_position": "A1ROL",
+        "storage_position": "C1LOM",
     })
     _check(
         "CSRF token replay rejected or safely handled (no 500)",
@@ -925,9 +1003,9 @@ def _phase1f_concurrency(base: str) -> None:
                 _post(base, "/wheelsets/new", {
                     "_csrf_token": csrf,
                     "customer_name": f"Concurrent {n}-{i}",
-                    "license_plate": f"CON-{n:02d}{i:02d}",
+                    "license_plate": f"C-AB {n * 10 + i + 1}",
                     "car_type": "Test",
-                    "storage_position": "A1ROL",
+                    "storage_position": f"GR{n + 1}O{'LMR'[i % 3]}",
                 })
             except (OSError, urllib.error.URLError):
                 pass  # transient errors under load are acceptable
@@ -1041,9 +1119,17 @@ def phase2_installer(
         "Service still responds after reinstall",
         _wait_http_up(base, timeout=60),
     )
+    # NSSM updates the SCM state slightly after the process starts;
+    # give it up to 10 s to transition to RUNNING.
+    _svc_running = False
+    for _ in range(10):
+        if _service_state() == "RUNNING":
+            _svc_running = True
+            break
+        time.sleep(1)
     _check(
         "Service state RUNNING after reinstall",
-        _service_state() == "RUNNING",
+        _svc_running,
     )
 
     # ── 2e Restore-DB edge cases ──────────────────────────────────────
@@ -1475,12 +1561,22 @@ def phase4_installer_upgrade(
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "Upgrade Survival Test",
-        "license_plate": "UPG-SURVIVE",
+        "license_plate": "UPG-S 7",
         "car_type": "Compact",
-        "storage_position": "A1ROL",
+        "storage_position": "C1ROL",
         "note": "must survive upgrade",
     })
     _check("4b: survival wheelset created", code in (200, 302), f"got {code}")
+
+    # Verify the wheelset actually landed in the DB (catch silent
+    # rejections due to invalid position or duplicate plate).
+    _, _seed_body = _get(base, "/wheelsets")
+    _check(
+        "4b: survival wheelset appears in list",
+        b"UPG-S 7" in _seed_body,
+        "POST returned 200/302 but wheelset not in /wheelsets – "
+        "likely a silent validation rejection",
+    )
 
     _section("Phase 4c – In-place upgrade via installer")
     # Trigger a backup so SQLite checkpoints the WAL before we stop the
@@ -1495,9 +1591,8 @@ def phase4_installer_upgrade(
     _, _pre_body = _get(base, "/wheelsets")
     _check(
         "4c: survival wheelset visible before upgrade",
-        b"UPG-SURVIVE" in _pre_body,
-        "not found – WAL may not have flushed",
-        warn=True,
+        b"UPG-S 7" in _pre_body,
+        "not found – backup/checkpoint may not have flushed",
     )
 
     # Stop the service so the EXE file handle is released.
@@ -1533,6 +1628,34 @@ def phase4_installer_upgrade(
         )
         time.sleep(2)
 
+    # Windows needs a moment to fully release file handles after
+    # TerminateProcess – without this the WAL checkpoint may fail
+    # because the OS still holds a shared lock on the DB file.
+    time.sleep(2)
+
+    # Merge WAL into the main DB file now that the process has exited –
+    # this ensures the survival wheelset is in the main .db file and
+    # survives the installer overwriting the EXE.
+    _upgrade_db = upgrade_data / "db" / "wheel_storage.db"
+    ckpt_ok = _wal_checkpoint(_upgrade_db)
+    _check("4c: WAL checkpoint succeeded", ckpt_ok)
+
+    # If the WAL checkpoint failed, try reading the data directly to see
+    # if it's at least in the WAL (SQLite auto-replays WAL on open).
+    if not ckpt_ok:
+        try:
+            con = sqlite3.connect(str(_upgrade_db))
+            cur = con.execute(
+                "SELECT 1 FROM wheel_sets "
+                "WHERE license_plate = 'UPG-S 7' LIMIT 1",
+            )
+            found = cur.fetchone() is not None
+            con.close()
+            _check("4c: UPG-S 7 in DB via direct query (WAL replay)",
+                   found, "not found even via direct query")
+        except sqlite3.Error as exc:
+            _check("4c: direct SQLite query failed", False, str(exc))
+
     dest_exe = upgrade_dir / f"{APP_NAME}.exe"
     try:
         shutil.copy2(str(app_exe), str(dest_exe))
@@ -1554,9 +1677,14 @@ def phase4_installer_upgrade(
     _check("4d: service state RUNNING", _service_state() == "RUNNING")
 
     _section("Phase 4e – Data intact after upgrade")
+    # Give the freshly started service a moment to replay the WAL
+    # and render the full wheelset list.
+    time.sleep(3)
     _, ws_body = _get(base, "/wheelsets")
-    http_found = b"UPG-SURVIVE" in ws_body
+    http_found = b"UPG-S 7" in ws_body
     if not http_found:
+        print("    4e: UPG-S 7 not in HTTP response, "
+              "trying direct DB query …", flush=True)
         # Fallback: read the DB file directly (the HTTP layer may not
         # reflect the data immediately after a fresh service start if
         # the WAL hasn't been replayed yet).
@@ -1565,14 +1693,22 @@ def phase4_installer_upgrade(
         if db_path.exists():
             try:
                 con = sqlite3.connect(str(db_path))
+                # Count all rows to help diagnose empty-DB scenarios
+                total = con.execute(
+                    "SELECT COUNT(*) FROM wheel_sets"
+                ).fetchone()[0]
                 cur = con.execute(
                     "SELECT 1 FROM wheel_sets "
-                    "WHERE license_plate = 'UPG-SURVIVE' LIMIT 1",
+                    "WHERE license_plate = 'UPG-S 7' LIMIT 1",
                 )
                 db_found = cur.fetchone() is not None
                 con.close()
-            except (sqlite3.Error, OSError):
-                pass
+                print(f"    4e: DB has {total} wheelset(s), "
+                      f"UPG-S 7 found={db_found}", flush=True)
+            except (sqlite3.Error, OSError) as exc:
+                print(f"    4e: direct DB query error: {exc}", flush=True)
+        else:
+            print(f"    4e: DB file missing: {db_path}", flush=True)
         _check(
             "4e: survival wheelset still present after upgrade",
             db_found,
