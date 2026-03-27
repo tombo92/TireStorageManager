@@ -37,6 +37,15 @@ class WheelSet(Base):
     note = Column(Text, nullable=True)
     storage_position = Column(String(20), nullable=False, unique=True,
                               index=True)
+    # Extended tire details (optional — enabled via Settings.enable_tire_details)
+    tire_manufacturer = Column(String(100), nullable=True)
+    tire_size = Column(String(50), nullable=True)
+    tire_age = Column(String(20), nullable=True)
+    # season: 'sommer', 'winter', 'allwetter'
+    season = Column(String(20), nullable=True)
+    # rim_type: 'stahl', 'alu'
+    rim_type = Column(String(20), nullable=True)
+    exchange_note = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         nullable=False)
@@ -60,7 +69,10 @@ class Settings(Base):
     backup_copies = Column(Integer, nullable=False, default=10)
     dark_mode = Column(Boolean, nullable=False, default=False)
     auto_update = Column(Boolean, nullable=False, default=True)
+    language = Column(String(10), nullable=False, default="de")
     custom_positions_json = Column(Text, nullable=True)
+    enable_tire_details = Column(Boolean, nullable=False, default=False)
+    enable_seasonal_tracking = Column(Boolean, nullable=False, default=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc),
                         nullable=False)

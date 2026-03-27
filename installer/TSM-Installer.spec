@@ -19,6 +19,7 @@ a = Analysis(
     datas=[
         (os.path.join(REPO_ROOT, 'payload'), 'payload'),
         (os.path.join(REPO_ROOT, 'assets', 'installer.ico'), 'assets'),
+        (os.path.join(REPO_ROOT, 'assets', 'dev.png'), 'assets'),
     ],
     hiddenimports=['installer.installer_logic'],
     hookspath=[],

@@ -1,37 +1,37 @@
 {% extends 'base.html' %}
 {% block content %}
-<h3><i class="bi bi-grid-3x3-gap"></i> Positionen</h3>
+<h3><i class="bi bi-grid-3x3-gap"></i> {{ _("pos_title") }}</h3>
 
 <div class="card mb-3">
     <div class="card-body">
-        <h5 class="card-title">Freie Position finden</h5>
+        <h5 class="card-title">{{ _("pos_next") }}</h5>
         {% if next_free %}
         {% set cls = 'pos-container' if next_free.startswith('C') else 'pos-garage' %}
-        <p class="mb-2">Nächste freie Position:
+        <p class="mb-2">
             <span class="badge pos-badge pos-badge-lg {{ cls }}">{{ next_free }}</span>
         </p>
         <a class="btn btn-success" href="{{ url_for('create_wheelset', suggested=next_free) }}">
-            <i class="bi bi-plus-lg"></i> Radsatz hier anlegen
+            <i class="bi bi-plus-lg"></i> {{ _("wl_add") }}
         </a>
         {% else %}
-        <p class="text-danger">Keine freien Positionen vorhanden.</p>
+        <p class="text-danger">{{ _("pos_none_free") }}</p>
         {% endif %}
     </div>
 </div>
 
 <div class="card">
     <div class="card-body">
-        <h5 class="card-title">Alle freien Positionen ({{ free_positions|length }})</h5>
+        <h5 class="card-title">{{ _("pos_free") }} ({{ free_positions|length }})</h5>
         {% if free_positions %}
         <div class="pos-cloud">
             {% for p in free_positions %}
             {% set cls = 'pos-container' if p.startswith('C') else 'pos-garage' %}
             <a class="btn pos-btn {{ cls }}" href="{{ url_for('create_wheelset', suggested=p) }}"
-                title="Radsatz anlegen @ {{ p }}">{{ p }}</a>
+                title="{{ _('wl_add') }} @ {{ p }}">{{ p }}</a>
             {% endfor %}
         </div>
         {% else %}
-        <p>Keine freien Positionen.</p>
+        <p>{{ _("pos_none_free") }}</p>
         {% endif %}
     </div>
 </div>
@@ -39,7 +39,7 @@
 {% if disabled_positions is defined %}
 <div class="card mt-3">
     <div class="card-body">
-        <h5 class="card-title">Gesperrte Positionen ({{ disabled_positions|length }})</h5>
+        <h5 class="card-title">{{ _("pos_disabled") }} ({{ disabled_positions|length }})</h5>
         {% if disabled_positions %}
         <div class="pos-cloud">
             {% for p in disabled_positions %}
@@ -47,7 +47,7 @@
             {% endfor %}
         </div>
         {% else %}
-        <p>Keine gesperrten Positionen.</p>
+        <p>–</p>
         {% endif %}
     </div>
 </div>
