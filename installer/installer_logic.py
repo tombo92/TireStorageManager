@@ -33,7 +33,7 @@ def ensure_dir(p: Path) -> None:
 
 
 def run_cmd(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    """Run a subprocess and return the result."""
+    """Run a subprocess and return result."""
     return subprocess.run(
         cmd, check=check, capture_output=True,
         encoding="utf-8", errors="replace", shell=False,
