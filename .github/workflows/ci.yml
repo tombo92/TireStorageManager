@@ -116,19 +116,81 @@ jobs:
       - name: Run installer smoke tests
         run: python -m pytest tests/test_installer_smoke.py -v --tb=short
   # ──────────────────────────────────────────────────────────────
-  # JOB 2 – Build EXEs on Windows  (only on push, after tests pass)
+  # JOB 2 – Bump VERSION in config.py  (after tests, before build)
+  #   Calculates the new version and uploads the modified config.py
+  #   + CHANGELOG.md as an artifact.  Does NOT commit yet – that
+  #   only happens in commit-bump after the build succeeds.
+  #   • develop push → patch bump  (1.2.3 → 1.2.4)
+  #   • master  push → minor bump  (1.2.3 → 1.3.0)
+  #   Skipped on PRs, non-app changes, and bot commits.
+  # ──────────────────────────────────────────────────────────────
+  bump:
+    needs: [ changes, test ]
+    if: >
+      needs.test.result == 'success' &&
+      needs.changes.outputs.app == 'true' &&
+      github.event_name == 'push' &&
+      github.actor != 'github-actions[bot]' &&
+      (github.ref_name == 'master' || github.ref_name == 'develop')
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.NEW_VERSION }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Bump version in config.py (local only – no commit)
+        id: bump
+        run: |
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            NEW_VERSION=$(python tools/bump_version.py --minor)
+          else
+            NEW_VERSION=$(python tools/bump_version.py)
+          fi
+          echo "NEW_VERSION=$NEW_VERSION"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Upload bumped files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bumped-version-files
+          path: |
+            config.py
+            CHANGELOG.md
+
+  # ──────────────────────────────────────────────────────────────
+  # JOB 3 – Build EXEs on Windows  (only on push, after bump)
+  #   Downloads the bumped config.py so the version baked into
+  #   the EXE matches the intended release tag.  On branches/PRs
+  #   where bump is skipped, falls back to the source config.py.
   # ──────────────────────────────────────────────────────────────
   build:
-    needs: [ test ]
+    needs: [ test, bump ]
     if: >
       github.event_name == 'push' &&
-      needs.test.result == 'success'
+      needs.test.result == 'success' &&
+      (needs.bump.result == 'success' || needs.bump.result == 'skipped')
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+
+      - name: Download bumped config.py
+        if: needs.bump.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: bumped-version-files
+          # Overwrite config.py and CHANGELOG.md in the workspace root
+          path: .
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -160,6 +222,26 @@ jobs:
 
       - name: Build TSM-Installer.exe
         run: pyinstaller installer/TSM-Installer.spec --noconfirm
+
+      - name: Smoke-test TSM-Installer.exe
+        shell: pwsh
+        timeout-minutes: 15
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          # windows-latest runners run as admin – required for service/task/firewall ops.
+          # The restart check waits up to ~5 min for Task Scheduler to fire,
+          # so we allow 15 min total for the full install -> restart -> uninstall cycle.
+          python tools/smoke_test_installer.py `
+            --exe          "dist\TSM-Installer.exe" `
+            --install-dir  "$env:RUNNER_TEMP\tsm_installer_ci" `
+            --data-dir     "$env:RUNNER_TEMP\tsm_installer_data" `
+            --port         59200
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Installer smoke test failed (exit $LASTEXITCODE)"
+            exit 1
+          }
+          Write-Host "Installer smoke tests passed."
 
       - name: Smoke-test TireStorageManager.exe
         shell: pwsh
@@ -241,13 +323,6 @@ jobs:
 
           Remove-Item $pfx -Force
 
-      - name: Read version from config.py
-        id: version
-        shell: pwsh
-        run: |
-          $ver = python tools/get_version.py
-          echo "APP_VERSION=$ver" >> $env:GITHUB_OUTPUT
-
       - name: Upload TireStorageManager.exe artifact
         uses: actions/upload-artifact@v4
         with:
@@ -260,26 +335,17 @@ jobs:
           name: TSM-Installer
           path: dist/TSM-Installer.exe
 
-    outputs:
-      app_version: ${{ steps.version.outputs.APP_VERSION }}
-
   # ──────────────────────────────────────────────────────────────
-  # JOB 3 – Bump VERSION in config.py  (only after build passes,
-  #          only on master/develop pushes)
-  #   • develop push → patch bump  (1.2.3 → 1.2.4)
-  #   • master  push → minor bump  (1.2.3 → 1.3.0), then sync to develop
+  # JOB 4 – Commit & tag the version bump  (only after build passes)
+  #   Downloads the pre-computed bumped files, commits them, and
+  #   pushes the tag.  If build failed the bump is never committed.
   # ──────────────────────────────────────────────────────────────
-  bump:
-    needs: [ changes, build ]
+  commit-bump:
+    needs: [ bump, build ]
     if: >
-      needs.build.result == 'success' &&
-      needs.changes.outputs.app == 'true' &&
-      github.event_name == 'push' &&
-      github.actor != 'github-actions[bot]' &&
-      (github.ref_name == 'master' || github.ref_name == 'develop')
+      needs.bump.result == 'success' &&
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.bump.outputs.NEW_VERSION }}
 
     steps:
       - name: Checkout branch
@@ -288,21 +354,11 @@ jobs:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Download bumped files
+        uses: actions/download-artifact@v4
         with:
-          python-version: '3.x'
-
-      - name: Bump version in config.py
-        id: bump
-        run: |
-          if [ "${{ github.ref_name }}" = "master" ]; then
-            NEW_VERSION=$(python tools/bump_version.py --minor)
-          else
-            NEW_VERSION=$(python tools/bump_version.py)
-          fi
-          echo "NEW_VERSION=$NEW_VERSION"
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          name: bumped-version-files
+          path: .
 
       - name: Commit, tag & push
         run: |
@@ -313,11 +369,11 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add config.py CHANGELOG.md
-          git commit -m "chore(version): bump to ${{ steps.bump.outputs.NEW_VERSION }} [skip ci]"
-          git tag -a "v${{ steps.bump.outputs.NEW_VERSION }}" \
-                    -m "Release ${{ steps.bump.outputs.NEW_VERSION }}"
+          git commit -m "chore(version): bump to ${{ needs.bump.outputs.new_version }} [skip ci]"
+          git tag -a "v${{ needs.bump.outputs.new_version }}" \
+                    -m "Release ${{ needs.bump.outputs.new_version }}"
           git push origin HEAD:${{ github.ref_name }}
-          git push origin "v${{ steps.bump.outputs.NEW_VERSION }}"
+          git push origin "v${{ needs.bump.outputs.new_version }}"
 
       - name: Sync bumped version back to develop (master only)
         if: github.ref_name == 'master'
@@ -333,15 +389,15 @@ jobs:
           git push origin HEAD:develop
 
   # ──────────────────────────────────────────────────────────────
-  # JOB 4 – Create GitHub Release
+  # JOB 5 – Create GitHub Release
   #   master  → official release  (prerelease: false)
   #   develop → test release      (prerelease: true, tag: v…-dev)
   # ──────────────────────────────────────────────────────────────
   release:
-    needs: [ build, bump ]
+    needs: [ build, bump, commit-bump ]
     if: >
       needs.build.result == 'success' &&
-      needs.bump.result == 'success' &&
+      needs.commit-bump.result == 'success' &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
 

@@ -209,6 +209,31 @@ def start_service(
             log("   ✓ Dienst gestartet (via NSSM).")
 
 
+def validate_port(value: str) -> int:
+    """Parse and validate a TCP port string.
+
+    Returns the port as an int on success.
+    Raises ValueError with a human-readable message on failure.
+    """
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"'{value}' ist keine gültige Zahl."
+        )
+    if not 1 <= port <= 65535:
+        raise ValueError(
+            f"Port {port} liegt außerhalb des gültigen Bereichs "
+            f"(1–65535)."
+        )
+    return port
+
+
+def resolve_display_name(raw: str) -> str:
+    """Return *raw* stripped, falling back to DEFAULT_DISPLAY_NAME."""
+    return raw.strip() or "Reifenmanager"
+
+
 def create_update_task(
     log: Optional[Callable[[str], None]] = None,
 ) -> None:
@@ -217,14 +242,23 @@ def create_update_task(
     # /TR must be wrapped in cmd /c so the shell evaluates the & chaining.
     # Without cmd /c, schtasks passes the literal & to sc.exe, which only
     # runs the stop command and never restarts the service.
-    cmd = (
-        f'schtasks /Create /F /TN "{task_name}" '
-        f'/TR "cmd /c \\"sc.exe stop {SERVICE_NAME} & '
-        f'timeout /t 5 /nobreak >nul & '
-        f'sc.exe start {SERVICE_NAME}\\"" '
-        f'/SC DAILY /ST 03:00 /RL HIGHEST'
+    #
+    # Use run_cmd (list, no shell=True) so Python does NOT apply any
+    # additional shell quoting to the /TR value.  The /TR argument is
+    # passed directly to schtasks.exe as a single token.
+    tr_value = (
+        f"cmd /c \"sc.exe stop {SERVICE_NAME} & "
+        f"timeout /t 5 /nobreak >nul & "
+        f"sc.exe start {SERVICE_NAME}\""
     )
-    result = run_shell(cmd)
+    result = run_cmd([
+        "schtasks", "/Create", "/F",
+        "/TN", task_name,
+        "/TR", tr_value,
+        "/SC", "DAILY",
+        "/ST", "03:00",
+        "/RL", "HIGHEST",
+    ], check=False)
     if log:
         if result.returncode == 0:
             log(f"   ✓ Täglicher Neustart-Task '{task_name}' um 03:00 erstellt.")
