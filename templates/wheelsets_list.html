@@ -1,17 +1,20 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3><i class="bi bi-list-ul"></i> Radsätze</h3>
-    <a class="btn btn-primary" href="{{ url_for('create_wheelset') }}"><i class="bi bi-plus-circle"></i> Neu</a>
+    <h3><i class="bi bi-list-ul"></i> {{ _("wl_title") }}</h3>
+    <a class="btn btn-primary" href="{{ url_for('create_wheelset') }}">
+        <i class="bi bi-plus-circle"></i> {{ _("wl_add") }}
+    </a>
 </div>
 
 <form class="row g-2 mb-3" method="get">
     <div class="col-sm-10">
-        <input type="text" class="form-control" name="q" placeholder="Suche nach Name, Kennzeichen, Fahrzeug…"
-            value="{{ request.args.get('q','') }}">
+        <input type="text" class="form-control" name="q"
+               placeholder="{{ _('search_placeholder') }}"
+               value="{{ request.args.get('q','') }}">
     </div>
     <div class="col-sm-2 d-grid">
-        <button class="btn btn-primary"><i class="bi bi-search"></i> Suchen</button>
+        <button class="btn btn-primary"><i class="bi bi-search"></i></button>
     </div>
 </form>
 
@@ -20,31 +23,64 @@
         <thead class="table-dark">
             <tr>
                 <th>#</th>
-                <th>Kunde</th>
-                <th>Kennzeichen</th>
-                <th>Fahrzeug</th>
-                <th>Position</th>
-                <th>Notiz</th>
-                <th>Aktionen</th>
+                <th>{{ _("wl_customer") }}</th>
+                <th>{{ _("wl_plate") }}</th>
+                <th>{{ _("wl_car") }}</th>
+                <th>{{ _("wl_position") }}</th>
+                <th>{{ _("wl_note") }}</th>
+                <th>{{ _("wl_actions") }}</th>
             </tr>
         </thead>
         <tbody>
             {% for w in items %}
-            <tr>
+            {% set is_overdue = w.id in overdue_ids %}
+            <tr class="{{ 'table-danger overdue-row' if is_overdue else '' }}">
                 <td>{{ w.id }}</td>
-                <td>{{ w.customer_name }}</td>
+                <td>
+                    {{ w.customer_name }}
+                    {% if is_overdue %}
+                    <i class="bi bi-exclamation-triangle-fill text-danger ms-1"
+                       title="{{ _('wl_overdue_hint') }}"></i>
+                    {% endif %}
+                </td>
                 <td><span class="badge text-bg-primary">{{ w.license_plate }}</span></td>
                 <td>{{ w.car_type }}</td>
                 <td>
                     {% set cls = 'pos-container' if w.storage_position.startswith('C') else 'pos-garage' %}
                     <span class="badge pos-badge {{ cls }}">{{ w.storage_position }}</span>
                 </td>
-                <td>{{ w.note or "" }}</td>
+                <td>
+                    {# Season badge with icon #}
+                    {% if settings.enable_tire_details and w.season %}
+                    <span class="badge season-badge season-{{ w.season }}
+                                 {{ 'season-overdue' if is_overdue else '' }}"
+                          {% if w.exchange_note %}title="{{ w.exchange_note }}"{% endif %}>
+                        {% if w.season == 'sommer' %}
+                        <i class="bi bi-sun-fill"></i>
+                        {% elif w.season == 'winter' %}
+                        <i class="bi bi-snow"></i>
+                        {% else %}
+                        <i class="bi bi-cloud-drizzle-fill"></i>
+                        {% endif %}
+                        {{ _("wf_season_" + w.season) }}
+                    </span>
+                    {% endif %}
+                    {# Rim badge #}
+                    {% if settings.enable_tire_details and w.rim_type %}
+                    <span class="badge text-bg-light border ms-1">{{ _("wf_rim_" + w.rim_type) }}</span>
+                    {% endif %}
+                    {# Plain note — shown after badges, truncated #}
+                    {% if w.note %}
+                    <span class="ms-1 text-body-secondary small">{{ w.note }}</span>
+                    {% endif %}
+                </td>
                 <td class="text-nowrap">
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_wheelset', wid=w.id) }}"><i
-                            class="bi bi-pencil-square"></i></a>
+                    <a class="btn btn-sm btn-outline-secondary"
+                       href="{{ url_for('edit_wheelset', wid=w.id) }}"
+                       title="{{ _('wl_edit') }}"><i class="bi bi-pencil-square"></i></a>
                     <a class="btn btn-sm btn-outline-danger"
-                        href="{{ url_for('delete_wheelset_confirm', wid=w.id) }}"><i class="bi bi-trash"></i></a>
+                       href="{{ url_for('delete_wheelset_confirm', wid=w.id) }}"
+                       title="{{ _('wl_delete') }}"><i class="bi bi-trash"></i></a>
                 </td>
             </tr>
             {% endfor %}
@@ -52,6 +88,6 @@
     </table>
 </div>
 {% if not items %}
-<div class="alert alert-info">Keine Einträge gefunden.</div>
+<div class="alert alert-info">{{ _("wl_no_results") }}</div>
 {% endif %}
 {% endblock %}

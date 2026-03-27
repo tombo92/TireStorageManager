@@ -1,15 +1,15 @@
 {% extends 'base.html' %}
 {% block content %}
-<h3>{{ 'Radsatz bearbeiten' if editing else 'Neuen Radsatz anlegen' }}</h3>
+<h3>{{ _("wf_title_edit") if editing else _("wf_title_new") }}</h3>
 <form method="post" class="row g-3" id="wheelsetForm">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="col-md-6">
-        <label class="form-label">Kundenname *</label>
+        <label class="form-label">{{ _("wf_customer") }} *</label>
         <input type="text" class="form-control" name="customer_name" required
             value="{{ w.customer_name if w else '' }}">
     </div>
     <div class="col-md-6">
-        <label class="form-label" for="license_plate">Kennzeichen *</label>
+        <label class="form-label" for="license_plate">{{ _("wf_plate") }} *</label>
         <div class="input-group">
             <span class="input-group-text"><i class="bi bi-car-front-fill"></i></span>
             <input type="text"
@@ -25,23 +25,21 @@
                    aria-describedby="plateFeedback">
         </div>
         <div id="plateFeedback" class="form-text plate-hint">
-            Format: <code>ORT-KK 1234</code> &mdash; Unterscheidungszeichen,
-            Erkennungsbuchstaben, Ziffern (optionales <code>E</code> oder <code>H</code>).<br>
-            Beispiele: <code>B-TB 3005</code>, <code>LOS-ZE 123</code>, <code>M-AB 1234 H</code>.
+            {{ _("wf_plate_hint") }}
         </div>
         <div class="invalid-feedback" id="plateError">
-            Ungültiges deutsches Kennzeichen (z.&nbsp;B. B-TB 3005, LOS-ZE 123 H).
+            {{ _("wf_plate_invalid") }}
         </div>
     </div>
     <div class="col-md-6">
-        <label class="form-label">Fahrzeugtyp *</label>
+        <label class="form-label">{{ _("wf_car") }} *</label>
         <input type="text" class="form-control" name="car_type" required value="{{ w.car_type if w else '' }}">
     </div>
     <div class="col-md-6">
-        <label class="form-label">Position *</label>
+        <label class="form-label">{{ _("wf_position") }} *</label>
         <select class="form-select pos-select" name="storage_position" required>
             {% if suggested and not editing %}
-            <option value="{{ suggested }}">{{ suggested }} (Vorschlag)</option>
+            <option value="{{ suggested }}">{{ suggested }}</option>
             {% endif %}
             <optgroup label="Container">
                 {% for p in positions if p.startswith('C') %}
@@ -54,15 +52,63 @@
                 {% endfor %}
             </optgroup>
         </select>
-        <div class="form-text">Nur gültige, freie Positionen auswählen.</div>
     </div>
     <div class="col-12">
-        <label class="form-label">Notiz (optional)</label>
+        <label class="form-label">{{ _("wf_note") }}</label>
         <textarea class="form-control" name="note" rows="3">{{ (w.note or '') if w else '' }}</textarea>
     </div>
+
+    {% if settings.enable_tire_details %}
+    {# ── Extended tire detail fields ── #}
+    <div class="col-12">
+        <hr class="my-1">
+        <h6 class="text-body-secondary mb-3">
+            <i class="bi bi-speedometer me-1"></i>{{ _("wf_tire_details_section") }}
+        </h6>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _("wf_tire_manufacturer") }}</label>
+        <input type="text" class="form-control" name="tire_manufacturer"
+               value="{{ (w.tire_manufacturer or '') if w else '' }}">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _("wf_tire_size") }}</label>
+        <input type="text" class="form-control" name="tire_size"
+               placeholder="205/55 R16"
+               value="{{ (w.tire_size or '') if w else '' }}">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _("wf_tire_age") }}</label>
+        <input type="text" class="form-control" name="tire_age"
+               placeholder="2021"
+               value="{{ (w.tire_age or '') if w else '' }}">
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">{{ _("wf_season") }}</label>
+        <select class="form-select" name="season">
+            <option value="" {% if not w or not w.season %}selected{% endif %}>—</option>
+            <option value="sommer"     {% if w and w.season == 'sommer' %}selected{% endif %}>{{ _("wf_season_sommer") }}</option>
+            <option value="winter"     {% if w and w.season == 'winter' %}selected{% endif %}>{{ _("wf_season_winter") }}</option>
+            <option value="allwetter"  {% if w and w.season == 'allwetter' %}selected{% endif %}>{{ _("wf_season_allwetter") }}</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">{{ _("wf_rim_type") }}</label>
+        <select class="form-select" name="rim_type">
+            <option value="" {% if not w or not w.rim_type %}selected{% endif %}>—</option>
+            <option value="stahl"  {% if w and w.rim_type == 'stahl' %}selected{% endif %}>{{ _("wf_rim_stahl") }}</option>
+            <option value="alu"    {% if w and w.rim_type == 'alu' %}selected{% endif %}>{{ _("wf_rim_alu") }}</option>
+        </select>
+    </div>
+    <div class="col-12">
+        <label class="form-label">{{ _("wf_exchange_note") }}</label>
+        <textarea class="form-control" name="exchange_note" rows="2">{{ (w.exchange_note or '') if w else '' }}</textarea>
+    </div>
+    {% endif %}
+
     <div class="col-12 d-flex gap-2">
-        <button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Speichern</button>
-        <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">Abbrechen</a>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> {{ _("wf_save") }}</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('list_wheelsets') }}">{{ _("wf_cancel") }}</a>
     </div>
 </form>
 {% endblock %}

@@ -32,6 +32,7 @@ Build:
 """
 from __future__ import annotations
 
+import argparse
 import ctypes
 import os
 import socket
@@ -76,6 +77,8 @@ ERROR_CLR = "#ef4444"
 # UTILITY HELPERS
 # ========================================================
 def is_admin() -> bool:
+    """Check if the application is running with administrative privileges.
+    """
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
@@ -331,14 +334,21 @@ class InstallerApp(tk.Tk):
 
         # --- Secret key ---
         tk.Label(
-            body, text="Geheimer Schlüssel (für Sitzungssicherheit):",
+            body,
+            text="Geheimer Schlüssel (optional – für Sitzungssicherheit):",
             bg=BG_CARD, fg=FG_TEXT, font=("Segoe UI", 10),
         ).pack(anchor="w")
         tk.Entry(
             body, textvariable=self.var_secret_key, show="•",
             font=("Consolas", 10), bg="#475569", fg=FG_TEXT,
             insertbackground=FG_TEXT, relief="flat",
-        ).pack(fill="x", pady=(2, 10), ipady=4)
+        ).pack(fill="x", pady=(2, 4), ipady=4)
+        tk.Label(
+            body,
+            text="Leer lassen, um den Standard-Schlüssel zu verwenden. "
+                 "Empfohlen: eigenen Schlüssel setzen.",
+            bg=BG_CARD, fg="#94a3b8", font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 6))
 
         # Hint
         tk.Label(
@@ -382,6 +392,15 @@ class InstallerApp(tk.Tk):
         )
         self.btn_uninstall.pack(side="right", padx=(8, 0))
 
+        self.btn_restore_db = tk.Button(
+            bar, text="  DB wiederherstellen  ",
+            font=("Segoe UI", 10),
+            bg="#7c3aed", fg="white", relief="flat",
+            activebackground="#6d28d9", activeforeground="white",
+            command=self._on_restore_db,
+        )
+        self.btn_restore_db.pack(side="right", padx=(8, 0))
+
         tk.Button(
             bar, text="  Beenden  ",
             font=("Segoe UI", 10),
@@ -410,13 +429,9 @@ class InstallerApp(tk.Tk):
     def _on_install(self):
         # Validate port
         try:
-            port = int(self.var_port.get())
-            if not 1 <= port <= 65535:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror(
-                "Ungültiger Port",
-                "Port muss zwischen 1 und 65535 liegen.")
+            port = logic.validate_port(self.var_port.get())
+        except ValueError as exc:
+            messagebox.showerror("Ungültiger Port", str(exc))
             return
 
         install_dir = Path(self.var_install.get()).resolve()
@@ -428,7 +443,8 @@ class InstallerApp(tk.Tk):
                 "Bitte beide Verzeichnisse angeben.")
             return
 
-        display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
+        display_name = logic.resolve_display_name(
+            self.var_display_name.get())
         secret_key = self.var_secret_key.get().strip()
         shortcut = self.var_shortcut.get()
 
@@ -480,12 +496,62 @@ class InstallerApp(tk.Tk):
 
         self.btn_install.configure(state="disabled")
         self.btn_uninstall.configure(state="disabled")
-        display_name = self.var_display_name.get().strip() or DEFAULT_DISPLAY_NAME
+        display_name = logic.resolve_display_name(self.var_display_name.get())
         self._save_settings()
         UninstallProgressWindow(
             self, install_dir, data_dir,
             keep_data=keep_data,
             display_name=display_name)
+
+    # --------------------------------------------------------
+    # Restore-DB kick-off
+    # --------------------------------------------------------
+    def _on_restore_db(self):
+        install_dir = Path(self.var_install.get()).resolve()
+        data_dir = Path(self.var_data.get()).resolve()
+
+        if not str(install_dir).strip() or not str(data_dir).strip():
+            messagebox.showerror(
+                "Verzeichnis fehlt",
+                "Bitte Installations- und Datenverzeichnis angeben.")
+            return
+
+        source = filedialog.askopenfilename(
+            title="Datenbank-Backup auswählen",
+            filetypes=[("SQLite-Datenbank", "*.db"), ("Alle Dateien", "*.*")],
+        )
+        if not source:
+            return
+
+        source_path = Path(source).resolve()
+
+        # Validate before asking for the heavy confirmation.
+        try:
+            logic.validate_sqlite_file(source_path)
+        except ValueError as exc:
+            messagebox.showerror(
+                "Ungültige Datenbank",
+                f"Die gewählte Datei kann nicht verwendet werden:\n\n"
+                f"{exc}",
+            )
+            return
+
+        if not messagebox.askyesno(
+            "Datenbank wiederherstellen?",
+            f"Die aktuelle Datenbank wird durch\n\n"
+            f"  {source_path.name}\n\n"
+            f"ersetzt. Die aktuelle Datenbank wird vorher als Backup\n"
+            f"im Backups-Ordner gesichert.\n\n"
+            f"Der Dienst wird kurz gestoppt und danach neu gestartet.\n\n"
+            f"Fortfahren?",
+            icon="warning",
+        ):
+            return
+
+        self.btn_install.configure(state="disabled")
+        self.btn_uninstall.configure(state="disabled")
+        self.btn_restore_db.configure(state="disabled")
+        RestoreProgressWindow(self, install_dir, data_dir, source_path)
 
 
 # ========================================================
@@ -493,6 +559,12 @@ class InstallerApp(tk.Tk):
 # ========================================================
 class ProgressWindow(tk.Toplevel):
     """Modal loading screen with animated progress bar and log."""
+
+    # Bounce animation constants
+    _BOUNCE_FRAMES = 20        # steps per up/down cycle
+    _BOUNCE_HEIGHT = 18        # pixels of vertical travel
+    _BOUNCE_INTERVAL_MS = 30   # ms per frame  (~33 fps)
+    _IMG_SIZE = 64             # px to display the avatar at
 
     def __init__(self, parent: InstallerApp,
                  install_dir: Path, data_dir: Path, port: int,
@@ -508,22 +580,41 @@ class ProgressWindow(tk.Toplevel):
         self.shortcut = shortcut
 
         self.title("Installation läuft …")
-        self.geometry("660x400")
+        self.geometry("660x430")
         self.resizable(False, False)
         self.configure(bg=BG_DARK)
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", lambda: None)  # block close
 
+        self._bounce_y = 0
+        self._bounce_direction = 1
+        self._bounce_frame = 0
+        self._avatar_label: Optional[tk.Label] = None
+        self._avatar_image = None  # keep reference to prevent GC
+
         self._build()
+        self._load_avatar()
         self._start_worker()
 
     def _build(self):
+        # ── Top row: title + bouncing avatar ────────────────────────
+        top_row = tk.Frame(self, bg=BG_DARK)
+        top_row.pack(fill="x", padx=20, pady=(18, 6))
+
         tk.Label(
-            self, text=f"{self.display_name} wird installiert …",
+            top_row, text=f"{self.display_name} wird installiert …",
             bg=BG_DARK, fg=FG_TEXT,
             font=("Segoe UI", 13, "bold"),
-        ).pack(anchor="w", padx=20, pady=(18, 6))
+        ).pack(side="left")
+
+        # Canvas for the bouncing avatar (fixed size, transparent bg)
+        avatar_size = self._IMG_SIZE + self._BOUNCE_HEIGHT + 4
+        self._avatar_canvas = tk.Canvas(
+            top_row, width=self._IMG_SIZE, height=avatar_size,
+            bg=BG_DARK, highlightthickness=0,
+        )
+        self._avatar_canvas.pack(side="right")
 
         # Progress bar
         style = ttk.Style(self)
@@ -564,6 +655,56 @@ class ProgressWindow(tk.Toplevel):
         self.btn_frame = tk.Frame(self, bg=BG_DARK)
         self.btn_frame.pack(fill="x", padx=20, pady=(0, 14))
 
+    # ---- Avatar bounce animation ----
+    def _load_avatar(self):
+        """Load assets/dev.png and start the bounce loop."""
+        # Resolve path: works both from source and inside a PyInstaller EXE.
+        base = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)
+        img_path = Path(base) / "assets" / "dev.png"
+        if not img_path.exists():
+            return  # silently skip if asset is missing
+        try:
+            self._avatar_image = tk.PhotoImage(file=str(img_path))
+            # Scale down to _IMG_SIZE using subsample if the image is larger
+            orig_w = self._avatar_image.width()
+            orig_h = self._avatar_image.height()
+            factor = max(1, max(orig_w, orig_h) // self._IMG_SIZE)
+            if factor > 1:
+                self._avatar_image = self._avatar_image.subsample(
+                    factor, factor)
+        except tk.TclError:
+            return  # unsupported format / Tk too old
+        self._bounce_tick()
+
+    def _bounce_tick(self):
+        """Advance one frame of the sinusoidal bounce."""
+        import math
+        canvas = self._avatar_canvas
+        canvas.delete("avatar")
+        t = self._bounce_frame / self._BOUNCE_FRAMES
+        # sin curve: 0 → top, 1 → bottom of travel
+        offset = int(math.sin(t * math.pi) * self._BOUNCE_HEIGHT)
+        canvas_h = self._IMG_SIZE + self._BOUNCE_HEIGHT + 4
+        y = (canvas_h - self._IMG_SIZE) - offset   # higher offset = higher up
+        canvas.create_image(
+            self._IMG_SIZE // 2, y,
+            image=self._avatar_image, anchor="n", tags="avatar",
+        )
+        # Shadow ellipse at the bottom — shrinks as avatar rises
+        shadow_scale = 1.0 - (offset / self._BOUNCE_HEIGHT) * 0.6
+        sw = int(self._IMG_SIZE * 0.5 * shadow_scale)
+        sx = self._IMG_SIZE // 2
+        sy = canvas_h - 6
+        canvas.create_oval(
+            sx - sw, sy - 3, sx + sw, sy + 3,
+            fill="#0f172a", outline="", tags="avatar",
+        )
+        self._bounce_frame = (
+            (self._bounce_frame + 1) % (self._BOUNCE_FRAMES * 2)
+        )
+        self._bounce_job = self.after(
+            self._BOUNCE_INTERVAL_MS, self._bounce_tick)
+
     # ---- Logging helpers (thread-safe via after) ----
     def _log(self, line: str):
         self.after(0, self._log_ui, line)
@@ -602,6 +743,8 @@ class ProgressWindow(tk.Toplevel):
         ).pack(side="right")
 
     def _close(self):
+        if hasattr(self, "_bounce_job"):
+            self.after_cancel(self._bounce_job)
         try:
             self.grab_release()
         except Exception:
@@ -649,6 +792,12 @@ class ProgressWindow(tk.Toplevel):
             self._log(f"  Datenverzeichnis:         {self.data_dir}")
             self._log(f"  Dienst:                   {SERVICE_NAME}")
             self._log(f"  URL:  {url}")
+            self._log("")
+            self._log("  DNS-Hinweis für IT / Netzwerkadministrator:")
+            self._log(f"    {ip}  →  <wunschname>.ihre-domain.local")
+            self._log("  DNS-Eintrag im internen DNS-Server ergänzen,")
+            self._log("  damit ein Hostname statt der IP-Adresse")
+            self._log("  verwendet werden kann.")
             self._log("═" * 50)
             self._show_result_buttons(True, url)
 
@@ -698,7 +847,9 @@ class ProgressWindow(tk.Toplevel):
     def _step_shortcut(self):
         ip = get_primary_ipv4() or "localhost"
         url = f"http://{ip}:{self.port}/"
-        logic.create_desktop_shortcut(url, self.display_name, log=self._log)
+        icon = self.install_dir / f"{APP_NAME}.exe"
+        logic.create_desktop_shortcut(
+            url, self.display_name, icon_path=icon, log=self._log)
 
 
 # ========================================================
@@ -881,9 +1032,306 @@ class UninstallProgressWindow(tk.Toplevel):
 
 
 # ========================================================
+# RESTORE-DB PROGRESS WINDOW
+# ========================================================
+class RestoreProgressWindow(tk.Toplevel):
+    """Modal window that restores a backup database."""
+
+    def __init__(self, parent: InstallerApp,
+                 install_dir: Path, data_dir: Path,
+                 source_db: Path):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.install_dir = install_dir
+        self.data_dir = data_dir
+        self.source_db = source_db
+
+        self.title("Datenbank wird wiederhergestellt …")
+        self.geometry("660x340")
+        self.resizable(False, False)
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        self._build()
+        self._start_worker()
+
+    def _build(self):
+        tk.Label(
+            self,
+            text="Datenbank wird wiederhergestellt …",
+            bg=BG_DARK, fg=FG_TEXT,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w", padx=20, pady=(18, 6))
+
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "restore.Horizontal.TProgressbar",
+            troughcolor=BG_CARD,
+            background="#7c3aed",
+            thickness=22,
+        )
+        self.progress = ttk.Progressbar(
+            self, style="restore.Horizontal.TProgressbar",
+            orient="horizontal", length=610,
+            mode="indeterminate",
+        )
+        self.progress.pack(padx=20, pady=(0, 10))
+        self.progress.start(15)
+
+        self.step_label = tk.Label(
+            self, text="Vorbereitung …", bg=BG_DARK,
+            fg="#94a3b8", font=("Segoe UI", 9),
+        )
+        self.step_label.pack(anchor="w", padx=20)
+
+        self.log_text = tk.Text(
+            self, height=10, wrap="word",
+            bg="#0f172a", fg="#e2e8f0",
+            font=("Consolas", 9),
+            relief="flat", borderwidth=0,
+        )
+        self.log_text.pack(fill="both", expand=True,
+                           padx=20, pady=(8, 12))
+        self.log_text.configure(state="disabled")
+
+        self.btn_frame = tk.Frame(self, bg=BG_DARK)
+        self.btn_frame.pack(fill="x", padx=20, pady=(0, 14))
+
+    def _log(self, line: str):
+        self.after(0, self._log_ui, line)
+
+    def _log_ui(self, line: str):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", line.rstrip() + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _set_step(self, label: str):
+        self.after(0, lambda: self.step_label.configure(text=label))
+
+    def _show_result_buttons(self, success: bool):
+        self.after(0, self._show_buttons_ui, success)
+
+    def _show_buttons_ui(self, success: bool):
+        self.progress.stop()
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        tk.Button(
+            self.btn_frame, text="  Schließen  ",
+            font=("Segoe UI", 10),
+            bg="#64748b", fg="white", relief="flat",
+            command=self._close,
+        ).pack(side="right")
+
+    def _close(self):
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+        self.parent_app.btn_install.configure(state="normal")
+        self.parent_app.btn_uninstall.configure(state="normal")
+        self.parent_app.btn_restore_db.configure(state="normal")
+
+    def _start_worker(self):
+        threading.Thread(
+            target=self._worker, daemon=True).start()
+
+    def _worker(self):
+        try:
+            self._set_step(
+                f"Stelle wieder her: {self.source_db.name} …")
+            logic.restore_database(
+                self.source_db,
+                self.data_dir,
+                self.install_dir,
+                log=self._log,
+            )
+            self._set_step("Wiederherstellung abgeschlossen ✓")
+            self._log("")
+            self._log("═" * 50)
+            self._log("  Datenbank erfolgreich wiederhergestellt!")
+            self._log("═" * 50)
+            self._show_result_buttons(True)
+        except (ValueError, Exception) as ex:
+            self._log(f"\n✗ FEHLER: {ex}")
+            self._set_step("Wiederherstellung fehlgeschlagen")
+            self._show_result_buttons(False)
+
+
+# ========================================================
 # ENTRY POINT
 # ========================================================
+def _run_headless(args: argparse.Namespace) -> int:
+    """Install or uninstall without a GUI.
+
+    Returns 0 on success, 1 on failure.
+    Used by CI smoke tests to verify the compiled EXE end-to-end.
+    """
+    log_lines: list[str] = []
+
+    def log(msg: str) -> None:
+        print(msg, flush=True)
+        log_lines.append(msg)
+
+    install_dir = Path(args.install_dir).resolve()
+    data_dir = Path(args.data_dir).resolve()
+
+    if args.action == "install":
+        port = logic.validate_port(str(args.port))
+        display_name = logic.resolve_display_name(args.display_name or "")
+
+        nssm_src = resource_path(PAYLOAD_NSSM)
+        app_src = resource_path(PAYLOAD_APP)
+        seed_db = resource_path(PAYLOAD_SEED_DB)
+        try:
+            logic.create_directories(
+                install_dir, data_dir, log=log)
+            nssm = logic.deploy_nssm(
+                nssm_src, install_dir, log=log)
+            app_exe = logic.deploy_app_exe(
+                app_src, install_dir, log=log)
+            logic.seed_database(
+                seed_db, data_dir, log=log)
+            logic.add_firewall_rule(port, log=log)
+            logic.install_service(
+                nssm, app_exe, data_dir, port,
+                install_dir,
+                display_name=display_name,
+                log=log)
+            logic.start_service(nssm, log=log)
+            logic.create_update_task(log=log)
+            if args.shortcut:
+                ip = get_primary_ipv4() or "localhost"
+                url = f"http://{ip}:{port}/"
+                logic.create_desktop_shortcut(
+                    url, display_name,
+                    icon_path=install_dir / f"{APP_NAME}.exe",
+                    log=log)
+        except Exception as exc:
+            print(f"✗ FEHLER: {exc}", flush=True)
+            return 1
+        return 0
+
+    if args.action == "uninstall":
+        port = logic.validate_port(str(args.port))
+        display_name = logic.resolve_display_name(
+            args.display_name or "")
+        try:
+            logic.stop_service(install_dir, log=log)
+            logic.remove_service(install_dir, log=log)
+            logic.remove_scheduled_task(log=log)
+            logic.remove_firewall_rules(extra_port=port, log=log)
+            logic.remove_desktop_shortcut(display_name, log=log)
+            if not args.keep_data:
+                logic.remove_data_dir(data_dir, log=log)
+            logic.remove_install_dir(install_dir, log=log)
+        except Exception as exc:
+            print(f"✗ FEHLER: {exc}", flush=True)
+            return 1
+        return 0
+
+    if args.action == "restore-db":
+        source_db = Path(args.source_db).resolve()
+        try:
+            logic.restore_database(
+                source_db, data_dir, install_dir, log=log)
+        except (ValueError, RuntimeError) as exc:
+            print(f"✗ FEHLER: {exc}", flush=True)
+            return 1
+        return 0
+
+    print(f"Unknown action: {args.action}", flush=True)
+    return 1
+
+
 def main():
+    # In headless mode the EXE writes to a pipe whose codec defaults to
+    # cp1252 on Windows.  Reconfigure to UTF-8 before any print() call
+    # so the Unicode log characters (✓ ✗ ℹ …) don't crash the process.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+    parser = argparse.ArgumentParser(
+        prog="TSM-Installer",
+        description="TireStorageManager Installer/Uninstaller",
+        add_help=True,
+    )
+    parser.add_argument(
+        "--headless", action="store_true",
+        help="Run without GUI (for CI smoke tests).",
+    )
+    parser.add_argument(
+        "--action", choices=["install", "uninstall", "restore-db"],
+        help="Action to perform in headless mode.",
+    )
+    parser.add_argument(
+        "--install-dir", dest="install_dir",
+        help="Installation directory.",
+    )
+    parser.add_argument(
+        "--data-dir", dest="data_dir",
+        help="Data directory.",
+    )
+    parser.add_argument(
+        "--source-db", dest="source_db",
+        help="Source DB file for restore-db action.",
+    )
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT,
+        help=f"HTTP port (default: {DEFAULT_PORT}).",
+    )
+    parser.add_argument(
+        "--display-name", dest="display_name",
+        default="", help="Windows Service display name.",
+    )
+    parser.add_argument(
+        "--shortcut", action="store_true",
+        help="Create desktop shortcut (install only).",
+    )
+    parser.add_argument(
+        "--keep-data", dest="keep_data", action="store_true",
+        help="Keep data directory on uninstall.",
+    )
+    parser.add_argument(
+        "--version", action="store_true",
+        help="Print version and exit.",
+    )
+
+    # parse_known_args so PyInstaller's bootloader args don't cause errors
+    args, _ = parser.parse_known_args()
+
+    if args.version:
+        try:
+            from config import VERSION  # type: ignore[import]
+            print(VERSION, flush=True)
+        except Exception:
+            print("unknown", flush=True)
+        return
+
+    if args.headless:
+        if not args.action:
+            parser.error(
+                "--headless requires --action install|uninstall|restore-db")
+        if args.action in ("install", "uninstall"):
+            if not args.install_dir or not args.data_dir:
+                parser.error(
+                    "--headless requires --install-dir and --data-dir")
+        if args.action == "restore-db":
+            if not args.data_dir or not args.install_dir:
+                parser.error(
+                    "restore-db requires --install-dir and --data-dir")
+            if not args.source_db:
+                parser.error(
+                    "restore-db requires --source-db")
+        sys.exit(_run_headless(args))
+        return
+
+    # Normal GUI mode
     app = InstallerApp()
     app.mainloop()
 
