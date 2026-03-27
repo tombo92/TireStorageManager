@@ -17,7 +17,7 @@ on:
       - 'requirements*.txt'
       - 'pyproject.toml'
       - '.github/workflows/**'
-  # ── TEMPORARY: manual trigger for feature-branch testing ──────
+  # ── TEMPORARY: manual trigger for release-test on any branch ──
   # Remove this block before creating the PR to develop.
   workflow_dispatch:
     inputs:
@@ -39,10 +39,10 @@ concurrency:
 
 jobs:
 
-  # ── Detect which parts of the codebase changed ────────────────
-  # app       → triggers version bump (master/develop only)
-  # installer → triggers installer unit tests
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # changes – all branches
+  # Detects which parts of the codebase changed.
+  # ────────────────────────────────────────────────────────────────
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -65,9 +65,12 @@ jobs:
             installer:
               - 'installer/**'
 
-  # ── Unit tests – every push and PR, all branches ──────────────
+  # ────────────────────────────────────────────────────────────────
+  # test-app – all branches, only when app files changed
+  # ────────────────────────────────────────────────────────────────
   test-app:
     needs: [ changes ]
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,7 +99,10 @@ jobs:
           name: test-app-results-${{ github.run_id }}
           path: test-results.xml
 
-  # ── Installer unit tests – only when installer/ changed ───────
+  # ────────────────────────────────────────────────────────────────
+  # test-installer – all branches, only when installer/ changed
+  # Runs independently; does NOT block the build chain.
+  # ────────────────────────────────────────────────────────────────
   test-installer:
     needs: [ changes ]
     if: needs.changes.outputs.installer == 'true'
@@ -128,15 +134,16 @@ jobs:
           name: test-installer-results-${{ github.run_id }}
           path: test-installer-results.xml
 
-  # ── Version bump – master/develop only, after tests pass ──────
-  # patch bump on develop (1.2.3 → 1.2.4), minor on master (→ 1.3.0)
-  # Produces a bumped-version-files artifact; does NOT commit yet.
-  # Skipped on PRs, non-app changes, feature branches, and bot commits.
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # bump – develop + master only
+  # Patch bump on develop (1.2.3 → 1.2.4), minor on master (→ 1.3.0).
+  # Requires test-app to pass (or be skipped when app unchanged).
+  # ────────────────────────────────────────────────────────────────
   bump:
     needs: [ changes, test-app ]
     if: >
-      needs.test-app.result == 'success' &&
+      always() &&
+      (needs.test-app.result == 'success' || needs.test-app.result == 'skipped') &&
       needs.changes.outputs.app == 'true' &&
       github.event_name == 'push' &&
       github.actor != 'github-actions[bot]' &&
@@ -172,17 +179,18 @@ jobs:
             config.py
             CHANGELOG.md
 
-  # ── Build app EXE on Windows ──────────────────────────────────
-  # Downloads bumped config.py when available. Falls back to source
-  # config.py on feature branches where bump is skipped.
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # build-app – all branches
+  # Runs when unit tests pass or are skipped (no app changes).
+  # Downloads bumped config.py on develop/master; uses source otherwise.
+  # ────────────────────────────────────────────────────────────────
   build-app:
     needs: [ test-app, bump ]
     if: >
       always() &&
-      needs.test-app.result == 'success' &&
-      github.actor != 'github-actions[bot]' &&
-      (needs.bump.result == 'success' || needs.bump.result == 'skipped')
+      (needs.test-app.result == 'success' || needs.test-app.result == 'skipped') &&
+      (needs.bump.result == 'success' || needs.bump.result == 'skipped') &&
+      github.actor != 'github-actions[bot]'
     runs-on: windows-latest
     env:
       PYTHONIOENCODING: utf-8
@@ -247,16 +255,15 @@ jobs:
           name: TireStorageManager
           path: dist/TireStorageManager.exe
 
-  # ── App EXE smoke test ────────────────────────────────────────
-  # master: always required.
-  # other:  only when app files changed.
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # smoke-app – all branches, only when app files changed
+  # ────────────────────────────────────────────────────────────────
   smoke-app:
     needs: [ changes, build-app ]
     if: >
       always() &&
       needs.build-app.result == 'success' &&
-      (github.ref_name == 'master' || needs.changes.outputs.app == 'true' || github.event_name == 'workflow_dispatch')
+      needs.changes.outputs.app == 'true'
     runs-on: windows-latest
     env:
       PYTHONIOENCODING: utf-8
@@ -337,24 +344,20 @@ jobs:
             ${{ runner.temp }}/tsm_smoke_logs/
             ${{ runner.temp }}/tsm_smoke/logs/
 
-  # ── Build installer EXE on Windows ───────────────────────────
-  # Only runs after smoke-app passed. Requires smoke-app success on
-  # master; on other branches only when installer/ changed.
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # build-installer – all branches
+  # Runs when build-app passed AND smoke-app passed or was skipped
+  # (skipped = no app changes, but installer changes present).
+  # ────────────────────────────────────────────────────────────────
   build-installer:
     needs: [ changes, bump, build-app, smoke-app ]
     if: >
       always() &&
       needs.build-app.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
       (needs.bump.result == 'success' || needs.bump.result == 'skipped') &&
       github.actor != 'github-actions[bot]' &&
-      (
-        github.ref_name == 'master' && needs.smoke-app.result == 'success'
-        ||
-        needs.changes.outputs.installer == 'true' && needs.smoke-app.result == 'success'
-        ||
-        github.event_name == 'workflow_dispatch' && needs.smoke-app.result == 'success'
-      )
+      needs.changes.outputs.installer == 'true'
     runs-on: windows-latest
     env:
       PYTHONIOENCODING: utf-8
@@ -432,22 +435,15 @@ jobs:
           name: TSM-Installer
           path: dist/TSM-Installer.exe
 
-  # ── Installer EXE smoke test ──────────────────────────────────
-  # master: always required (smoke-app must also have passed).
-  # other:  only when installer/ changed AND test-installer passed.
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # smoke-installer – all branches, only when installer/ changed
+  # ────────────────────────────────────────────────────────────────
   smoke-installer:
     needs: [ changes, build-installer ]
     if: >
       always() &&
       needs.build-installer.result == 'success' &&
-      (
-        github.ref_name == 'master'
-        ||
-        needs.changes.outputs.installer == 'true'
-        ||
-        github.event_name == 'workflow_dispatch'
-      )
+      needs.changes.outputs.installer == 'true'
     runs-on: windows-latest
     env:
       PYTHONIOENCODING: utf-8
@@ -501,21 +497,24 @@ jobs:
             ${{ runner.temp }}/tsm_installer_data/logs/
             ${{ runner.temp }}/tsm_installer_ci/
 
-  # ── Release Acceptance Test – master PRs + manual dispatch ───
-  # Runs the full release_acceptance_test.py (Phases 1–4).
-  # Gated on master PRs and workflow_dispatch runs only.
-  # Must pass before commit-bump and release are allowed on master.
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # release-test – master PRs + manual dispatch (any branch)
+  # Full release acceptance test (Phases 1–4).
+  # Requires smoke-app AND smoke-installer (or skipped) to pass.
+  # On workflow_dispatch: smoke jobs may be skipped if no relevant
+  # files changed; release-test will only run if build-app succeeded.
+  # ────────────────────────────────────────────────────────────────
   release-test:
-    needs: [ build-app, build-installer, smoke-app, smoke-installer ]
+    needs: [ build-app, smoke-app, build-installer, smoke-installer ]
     if: >
       always() &&
       needs.build-app.result == 'success' &&
-      needs.build-installer.result == 'success' &&
-      needs.smoke-app.result == 'success' &&
-      needs.smoke-installer.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
+      (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
+      (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
       (
         (github.event_name == 'pull_request' && github.base_ref == 'master')
+        || (github.event_name == 'push' && github.ref_name == 'master')
         || github.event_name == 'workflow_dispatch'
       )
     runs-on: windows-latest
@@ -584,21 +583,26 @@ jobs:
             ${{ runner.temp }}/tsm_rat_upgrade_data/logs/
             ${{ runner.temp }}/tsm_rat_upgrade_data/db/
 
-  # ── Commit & tag the version bump – only after build passes ───
-  # If build failed the bump is never committed.
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # commit-bump – develop + master only
+  # Commits bumped version and pushes git tag.
+  # Requires all previous jobs to pass or be legitimately skipped.
+  # On master: release-test must have passed.
+  # ────────────────────────────────────────────────────────────────
   commit-bump:
-    needs: [ bump, build-app, build-installer, smoke-app, smoke-installer, release-test ]
+    needs: [ bump, build-app, smoke-app, build-installer, smoke-installer, test-installer, release-test ]
     if: >
+      always() &&
       needs.bump.result == 'success' &&
       needs.build-app.result == 'success' &&
-      needs.smoke-app.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
       (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
       (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
+      (needs.test-installer.result == 'success' || needs.test-installer.result == 'skipped') &&
       (needs.release-test.result == 'success' || needs.release-test.result == 'skipped') &&
       (
         github.ref_name != 'master' ||
-        (needs.build-installer.result == 'success' && needs.smoke-installer.result == 'success' && needs.release-test.result == 'success')
+        needs.release-test.result == 'success'
       )
     runs-on: ubuntu-latest
     steps:
@@ -641,22 +645,26 @@ jobs:
           fi
           git push origin HEAD:develop
 
-  # ── GitHub Release – master/develop only, after commit-bump ───
+  # ────────────────────────────────────────────────────────────────
+  # release – develop + master only, after commit-bump
   # master  → official release (prerelease: false)
   # develop → test release     (prerelease: true, tag: v…-dev)
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
   release:
-    needs: [ bump, build-app, build-installer, commit-bump, smoke-app, smoke-installer, release-test ]
+    needs: [ bump, build-app, smoke-app, build-installer, smoke-installer, test-installer, commit-bump, release-test ]
     if: >
+      always() &&
+      needs.bump.result == 'success' &&
       needs.build-app.result == 'success' &&
-      needs.smoke-app.result == 'success' &&
       needs.commit-bump.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
       (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
       (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
+      (needs.test-installer.result == 'success' || needs.test-installer.result == 'skipped') &&
       (needs.release-test.result == 'success' || needs.release-test.result == 'skipped') &&
       (
         github.ref_name != 'master' ||
-        (needs.build-installer.result == 'success' && needs.smoke-installer.result == 'success' && needs.release-test.result == 'success')
+        needs.release-test.result == 'success'
       ) &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
