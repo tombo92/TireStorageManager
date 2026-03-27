@@ -37,6 +37,7 @@ SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False,
 # ========================================================
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
+    """"""
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("PRAGMA journal_mode=WAL;")

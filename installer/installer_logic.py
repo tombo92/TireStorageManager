@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sqlite3
 import subprocess
 import time
 from pathlib import Path
@@ -264,6 +265,132 @@ def create_update_task(
             log(f"   ✓ Täglicher Neustart-Task '{task_name}' um 03:00 erstellt.")
         else:
             log(f"   ℹ Task-Erstellung: {result.stderr.strip()}")
+
+
+DB_FILENAME = "wheel_storage.db"
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+
+# Minimum columns required per table for the application to function.
+# Extra columns (from schema migrations) are accepted; missing required
+# columns cause the restore to be rejected before touching the live DB.
+_REQUIRED_SCHEMA: dict[str, set[str]] = {
+    "wheel_sets": {
+        "id", "customer_name", "license_plate",
+        "car_type", "storage_position",
+    },
+    "settings": {
+        "id", "backup_interval_minutes", "backup_copies",
+    },
+    "audit_log": {
+        "id", "action",
+    },
+}
+
+
+def validate_sqlite_file(path: Path) -> None:
+    """Raise ValueError if *path* is not a usable SQLite3 database.
+
+    Checks performed (in order):
+      1. File exists.
+      2. File size ≥ 16 bytes.
+      3. SQLite3 magic header present (file is a real DB, not a CSV/ZIP).
+      4. Required tables and their mandatory columns are present as a
+         subset — extra tables/columns from older or newer schema versions
+         are accepted; only missing required columns are rejected.
+    """
+    if not path.exists():
+        raise ValueError(f"Datei nicht gefunden: {path}")
+    if path.stat().st_size < 16:
+        raise ValueError(
+            f"Datei zu klein für eine SQLite-Datenbank: {path}")
+    with open(path, "rb") as fh:
+        header = fh.read(16)
+    if header != _SQLITE_MAGIC:
+        raise ValueError(
+            f"'{path.name}' ist keine gültige SQLite3-Datenbank "
+            f"(falscher Datei-Header)."
+        )
+    # Schema check — open read-only (uri mode) so we never modify the file.
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.OperationalError as exc:
+        raise ValueError(
+            f"Datenbank konnte nicht geöffnet werden: {exc}"
+        ) from exc
+    try:
+        cur = con.cursor()
+        # Collect all table names present in the file.
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        existing_tables = {row[0] for row in cur.fetchall()}
+
+        missing_tables = set(_REQUIRED_SCHEMA) - existing_tables
+        if missing_tables:
+            raise ValueError(
+                f"Pflicht-Tabellen fehlen in der Datenbank: "
+                f"{', '.join(sorted(missing_tables))}."
+            )
+
+        # For each required table, check the column subset.
+        for table, required_cols in _REQUIRED_SCHEMA.items():
+            cur.execute(f"PRAGMA table_info({table})")  # noqa: S608
+            present_cols = {row[1] for row in cur.fetchall()}
+            missing_cols = required_cols - present_cols
+            if missing_cols:
+                raise ValueError(
+                    f"Pflicht-Spalten fehlen in Tabelle '{table}': "
+                    f"{', '.join(sorted(missing_cols))}."
+                )
+    finally:
+        con.close()
+
+
+def restore_database(
+    source_db: Path,
+    data_dir: Path,
+    install_dir: Path,
+    log: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Replace the live database with *source_db* (e.g. a backup).
+
+    Steps:
+      1. Validate *source_db* is a readable SQLite3 file.
+      2. Stop the Windows service so file handles are released.
+      3. Back up the current DB (renamed with a timestamp suffix).
+      4. Copy *source_db* to the live DB path.
+      5. Restart the service.
+
+    Raises ValueError for validation failures, RuntimeError for I/O
+    failures so the caller can surface a clean message.
+    """
+    validate_sqlite_file(source_db)
+
+    live_db = data_dir / "db" / DB_FILENAME
+    backup_dir = data_dir / "backups"
+    ensure_dir(backup_dir)
+
+    # Stop service before touching the DB file.
+    stop_service(install_dir, log=log)
+
+    # Backup the current DB if it exists.
+    if live_db.exists():
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = backup_dir / f"wheel_storage_{ts}.db"
+        shutil.copy2(live_db, backup_path)
+        if log:
+            log(f"   ✓ Backup erstellt: {backup_path.name}")
+
+    # Replace the live DB.
+    ensure_dir(live_db.parent)
+    shutil.copy2(source_db, live_db)
+    if log:
+        log(f"   ✓ Datenbank wiederhergestellt: {live_db}")
+
+    # Restart the service.
+    nssm = install_dir / "nssm.exe"
+    start_service(nssm, log=log)
 
 
 def create_desktop_shortcut(

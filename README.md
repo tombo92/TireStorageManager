@@ -222,20 +222,118 @@ Exit code `0` = all checks passed. Exit code `1` = one or more failures (details
 
 ## CI/CD
 
-GitHub Actions pipeline (`.github/workflows/ci.yml`) — single workflow, 4 jobs:
+The entire pipeline is defined in a single `.github/workflows/ci.yml`.
 
-| Job | Runner | Trigger | What it does |
-| --- | --- | --- | --- |
-| `bump` | `ubuntu-latest` | push to **master/develop** only | Bumps VERSION (patch on develop, minor on master) |
-| `test` | `ubuntu-latest` | **every push & PR** (all branches) | Runs the full pytest suite |
-| `build` | `windows-latest` | **every push** (all branches) after `test` passes | Builds both EXEs, smoke test, optional code signing |
-| `release` | `ubuntu-latest` | after `build` succeeds on **master/develop** only | Creates GitHub Release (official on master, pre-release on develop) |
+### Job flow
+
+```mermaid
+flowchart TD
+    A([changes])
+
+    subgraph TESTS [Tests - all branches]
+        B[test-app]
+        C[test-installer]
+    end
+
+    subgraph BUILD_APP [App Build - all branches]
+        E[build-app]
+        F[smoke-app]
+    end
+
+    subgraph BUILD_INST [Installer Build - all branches]
+        G[build-installer]
+        H[smoke-installer]
+    end
+
+    subgraph RELEASE_GATE [Release Gate - master or manual]
+        I{release-test}
+    end
+
+    subgraph PUBLISH [Publish - develop and master only]
+        D[bump]
+        J[commit-bump]
+        K([release])
+    end
+
+    A -->|app changed| B
+    A -->|installer changed| C
+
+    B -->|passed or skipped| D
+    A -->|app changed| D
+    B -->|passed or skipped| E
+    D -->|passed or skipped| E
+
+    E -->|passed| F
+
+    E -->|passed| G
+    F -->|passed or skipped| G
+    D -->|passed or skipped| G
+    G -->|passed| H
+
+    E -->|passed| I
+    F -->|passed or skipped| I
+    G -->|passed or skipped| I
+    H -->|passed or skipped| I
+
+    D -->|passed| J
+    E -->|passed| J
+    F -->|passed or skipped| J
+    G -->|passed or skipped| J
+    H -->|passed or skipped| J
+    C -->|passed or skipped| J
+    I -->|passed or skipped| J
+
+    J -->|passed| K
+
+    classDef trigger fill:#e8f4f8,stroke:#3a86b4,color:#1a4a6b
+    classDef tests   fill:#fef9e7,stroke:#d4ac0d,color:#7d6608
+    classDef build   fill:#eafaf1,stroke:#1e8449,color:#145a32
+    classDef gate    fill:#f9ebea,stroke:#cb4335,color:#7b241c
+    classDef publish fill:#eaf0fb,stroke:#2e4bab,color:#1a2a6b
+
+    class A trigger
+    class B,C tests
+    class E,F,G,H build
+    class I gate
+    class D,J,K publish
+```
+
+**Color legend:**
+
+| Color | Group | Scope |
+| ----- | ----- | ----- |
+| Blue | Trigger (`changes`) | all branches and PRs |
+| Yellow | Tests | all branches and PRs |
+| Green | Build | all branches and PRs |
+| Red | Release Gate | master PRs/pushes + manual dispatch |
+| Indigo | Publish | develop + master only |
+
+Changes to the CI workflow file itself (`.github/workflows/**`) trigger all test and build jobs automatically. The **Publish** group (bump, commit-bump, release) is skipped because those jobs require app source files to have changed.
+
+### Job reference
+
+| Job | Scope | Condition |
+| --- | ----- | --------- |
+| `changes` | all | always |
+| `test-app` | all | app files changed |
+| `test-installer` | all | `installer/` changed |
+| `bump` | develop + master | app changed, test-app passed or skipped |
+| `build-app` | all | test-app + bump passed or skipped |
+| `smoke-app` | all | app changed, build-app passed |
+| `build-installer` | all | installer changed, build-app passed, smoke-app passed or skipped |
+| `smoke-installer` | all | installer changed, build-installer passed |
+| `release-test` | master + manual | smoke-app + smoke-installer passed or skipped, build-app passed |
+| `commit-bump` | develop + master | all previous passed or skipped; on master: release-test must pass |
+| `release` | develop + master | commit-bump passed; pre-release on develop, official on master |
+
+Version bump only fires when app source files change (`tsm/`, `templates/`, `static/`, `config.py`, `requirements.txt`).
+Bot commits (`github-actions[bot]`) are excluded to prevent infinite loops.
 
 ---
 
 ## Project Structure
 
-```
+```text
 TireStorageManager/
 ├── tsm/                    # Application package
 │   ├── app.py              # Flask app factory

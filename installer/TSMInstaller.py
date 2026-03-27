@@ -77,6 +77,8 @@ ERROR_CLR = "#ef4444"
 # UTILITY HELPERS
 # ========================================================
 def is_admin() -> bool:
+    """Check if the application is running with administrative privileges.
+    """
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
@@ -332,14 +334,21 @@ class InstallerApp(tk.Tk):
 
         # --- Secret key ---
         tk.Label(
-            body, text="Geheimer Schlüssel (für Sitzungssicherheit):",
+            body,
+            text="Geheimer Schlüssel (optional – für Sitzungssicherheit):",
             bg=BG_CARD, fg=FG_TEXT, font=("Segoe UI", 10),
         ).pack(anchor="w")
         tk.Entry(
             body, textvariable=self.var_secret_key, show="•",
             font=("Consolas", 10), bg="#475569", fg=FG_TEXT,
             insertbackground=FG_TEXT, relief="flat",
-        ).pack(fill="x", pady=(2, 10), ipady=4)
+        ).pack(fill="x", pady=(2, 4), ipady=4)
+        tk.Label(
+            body,
+            text="Leer lassen, um den Standard-Schlüssel zu verwenden. "
+                 "Empfohlen: eigenen Schlüssel setzen.",
+            bg=BG_CARD, fg="#94a3b8", font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 6))
 
         # Hint
         tk.Label(
@@ -382,6 +391,15 @@ class InstallerApp(tk.Tk):
             command=self._on_uninstall,
         )
         self.btn_uninstall.pack(side="right", padx=(8, 0))
+
+        self.btn_restore_db = tk.Button(
+            bar, text="  DB wiederherstellen  ",
+            font=("Segoe UI", 10),
+            bg="#7c3aed", fg="white", relief="flat",
+            activebackground="#6d28d9", activeforeground="white",
+            command=self._on_restore_db,
+        )
+        self.btn_restore_db.pack(side="right", padx=(8, 0))
 
         tk.Button(
             bar, text="  Beenden  ",
@@ -484,6 +502,56 @@ class InstallerApp(tk.Tk):
             self, install_dir, data_dir,
             keep_data=keep_data,
             display_name=display_name)
+
+    # --------------------------------------------------------
+    # Restore-DB kick-off
+    # --------------------------------------------------------
+    def _on_restore_db(self):
+        install_dir = Path(self.var_install.get()).resolve()
+        data_dir = Path(self.var_data.get()).resolve()
+
+        if not str(install_dir).strip() or not str(data_dir).strip():
+            messagebox.showerror(
+                "Verzeichnis fehlt",
+                "Bitte Installations- und Datenverzeichnis angeben.")
+            return
+
+        source = filedialog.askopenfilename(
+            title="Datenbank-Backup auswählen",
+            filetypes=[("SQLite-Datenbank", "*.db"), ("Alle Dateien", "*.*")],
+        )
+        if not source:
+            return
+
+        source_path = Path(source).resolve()
+
+        # Validate before asking for the heavy confirmation.
+        try:
+            logic.validate_sqlite_file(source_path)
+        except ValueError as exc:
+            messagebox.showerror(
+                "Ungültige Datenbank",
+                f"Die gewählte Datei kann nicht verwendet werden:\n\n"
+                f"{exc}",
+            )
+            return
+
+        if not messagebox.askyesno(
+            "Datenbank wiederherstellen?",
+            f"Die aktuelle Datenbank wird durch\n\n"
+            f"  {source_path.name}\n\n"
+            f"ersetzt. Die aktuelle Datenbank wird vorher als Backup\n"
+            f"im Backups-Ordner gesichert.\n\n"
+            f"Der Dienst wird kurz gestoppt und danach neu gestartet.\n\n"
+            f"Fortfahren?",
+            icon="warning",
+        ):
+            return
+
+        self.btn_install.configure(state="disabled")
+        self.btn_uninstall.configure(state="disabled")
+        self.btn_restore_db.configure(state="disabled")
+        RestoreProgressWindow(self, install_dir, data_dir, source_path)
 
 
 # ========================================================
@@ -964,6 +1032,136 @@ class UninstallProgressWindow(tk.Toplevel):
 
 
 # ========================================================
+# RESTORE-DB PROGRESS WINDOW
+# ========================================================
+class RestoreProgressWindow(tk.Toplevel):
+    """Modal window that restores a backup database."""
+
+    def __init__(self, parent: InstallerApp,
+                 install_dir: Path, data_dir: Path,
+                 source_db: Path):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.install_dir = install_dir
+        self.data_dir = data_dir
+        self.source_db = source_db
+
+        self.title("Datenbank wird wiederhergestellt …")
+        self.geometry("660x340")
+        self.resizable(False, False)
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        self._build()
+        self._start_worker()
+
+    def _build(self):
+        tk.Label(
+            self,
+            text="Datenbank wird wiederhergestellt …",
+            bg=BG_DARK, fg=FG_TEXT,
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w", padx=20, pady=(18, 6))
+
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "restore.Horizontal.TProgressbar",
+            troughcolor=BG_CARD,
+            background="#7c3aed",
+            thickness=22,
+        )
+        self.progress = ttk.Progressbar(
+            self, style="restore.Horizontal.TProgressbar",
+            orient="horizontal", length=610,
+            mode="indeterminate",
+        )
+        self.progress.pack(padx=20, pady=(0, 10))
+        self.progress.start(15)
+
+        self.step_label = tk.Label(
+            self, text="Vorbereitung …", bg=BG_DARK,
+            fg="#94a3b8", font=("Segoe UI", 9),
+        )
+        self.step_label.pack(anchor="w", padx=20)
+
+        self.log_text = tk.Text(
+            self, height=10, wrap="word",
+            bg="#0f172a", fg="#e2e8f0",
+            font=("Consolas", 9),
+            relief="flat", borderwidth=0,
+        )
+        self.log_text.pack(fill="both", expand=True,
+                           padx=20, pady=(8, 12))
+        self.log_text.configure(state="disabled")
+
+        self.btn_frame = tk.Frame(self, bg=BG_DARK)
+        self.btn_frame.pack(fill="x", padx=20, pady=(0, 14))
+
+    def _log(self, line: str):
+        self.after(0, self._log_ui, line)
+
+    def _log_ui(self, line: str):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", line.rstrip() + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _set_step(self, label: str):
+        self.after(0, lambda: self.step_label.configure(text=label))
+
+    def _show_result_buttons(self, success: bool):
+        self.after(0, self._show_buttons_ui, success)
+
+    def _show_buttons_ui(self, success: bool):
+        self.progress.stop()
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        tk.Button(
+            self.btn_frame, text="  Schließen  ",
+            font=("Segoe UI", 10),
+            bg="#64748b", fg="white", relief="flat",
+            command=self._close,
+        ).pack(side="right")
+
+    def _close(self):
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+        self.parent_app.btn_install.configure(state="normal")
+        self.parent_app.btn_uninstall.configure(state="normal")
+        self.parent_app.btn_restore_db.configure(state="normal")
+
+    def _start_worker(self):
+        threading.Thread(
+            target=self._worker, daemon=True).start()
+
+    def _worker(self):
+        try:
+            self._set_step(
+                f"Stelle wieder her: {self.source_db.name} …")
+            logic.restore_database(
+                self.source_db,
+                self.data_dir,
+                self.install_dir,
+                log=self._log,
+            )
+            self._set_step("Wiederherstellung abgeschlossen ✓")
+            self._log("")
+            self._log("═" * 50)
+            self._log("  Datenbank erfolgreich wiederhergestellt!")
+            self._log("═" * 50)
+            self._show_result_buttons(True)
+        except (ValueError, Exception) as ex:
+            self._log(f"\n✗ FEHLER: {ex}")
+            self._set_step("Wiederherstellung fehlgeschlagen")
+            self._show_result_buttons(False)
+
+
+# ========================================================
 # ENTRY POINT
 # ========================================================
 def _run_headless(args: argparse.Namespace) -> int:
@@ -1035,6 +1233,16 @@ def _run_headless(args: argparse.Namespace) -> int:
             return 1
         return 0
 
+    if args.action == "restore-db":
+        source_db = Path(args.source_db).resolve()
+        try:
+            logic.restore_database(
+                source_db, data_dir, install_dir, log=log)
+        except (ValueError, RuntimeError) as exc:
+            print(f"✗ FEHLER: {exc}", flush=True)
+            return 1
+        return 0
+
     print(f"Unknown action: {args.action}", flush=True)
     return 1
 
@@ -1058,7 +1266,7 @@ def main():
         help="Run without GUI (for CI smoke tests).",
     )
     parser.add_argument(
-        "--action", choices=["install", "uninstall"],
+        "--action", choices=["install", "uninstall", "restore-db"],
         help="Action to perform in headless mode.",
     )
     parser.add_argument(
@@ -1068,6 +1276,10 @@ def main():
     parser.add_argument(
         "--data-dir", dest="data_dir",
         help="Data directory.",
+    )
+    parser.add_argument(
+        "--source-db", dest="source_db",
+        help="Source DB file for restore-db action.",
     )
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT,
@@ -1104,10 +1316,18 @@ def main():
     if args.headless:
         if not args.action:
             parser.error(
-                "--headless requires --action install|uninstall")
-        if not args.install_dir or not args.data_dir:
-            parser.error(
-                "--headless requires --install-dir and --data-dir")
+                "--headless requires --action install|uninstall|restore-db")
+        if args.action in ("install", "uninstall"):
+            if not args.install_dir or not args.data_dir:
+                parser.error(
+                    "--headless requires --install-dir and --data-dir")
+        if args.action == "restore-db":
+            if not args.data_dir or not args.install_dir:
+                parser.error(
+                    "restore-db requires --install-dir and --data-dir")
+            if not args.source_db:
+                parser.error(
+                    "restore-db requires --source-db")
         sys.exit(_run_headless(args))
         return
 
