@@ -220,6 +220,20 @@ class TestCreateUpdateTask:
         logic.create_update_task(log=msgs.append)
         assert "ℹ" in msgs[0]
 
+    @patch.object(logic, "run_shell", return_value=_ok(0))
+    def test_command_uses_cmd_c_wrapper(self, mock_run):
+        """Regression: /TR must be wrapped in cmd /c so the shell
+        evaluates the & operator.  Without it sc.exe stop runs but
+        sc.exe start never executes, leaving the service down."""
+        logic.create_update_task()
+        cmd: str = mock_run.call_args[0][0]
+        # Must delegate to cmd /c so & is evaluated by the shell.
+        assert "cmd /c" in cmd
+        # Both stop and start must be present in the correct order.
+        assert "sc.exe stop" in cmd
+        assert "sc.exe start" in cmd
+        assert cmd.index("sc.exe stop") < cmd.index("sc.exe start")
+
 
 # ────────────────────────────────────────────────
 # UNINSTALL STEPS
