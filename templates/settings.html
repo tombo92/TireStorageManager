@@ -1,24 +1,48 @@
 {% extends 'base.html' %}
 {% block content %}
-<h3><i class="bi bi-gear"></i> Einstellungen</h3>
+<h3><i class="bi bi-gear"></i> {{ _("settings_title") }}</h3>
 
-<!-- Dark Mode -->
+<!-- Appearance: Dark Mode + Language -->
 <div class="card mb-4">
     <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-moon-stars"></i> Erscheinungsbild</h5>
-        <form method="post">
+        <h5 class="card-title"><i class="bi bi-moon-stars"></i> {{ _("settings_appearance") }}</h5>
+        <!-- Dark mode toggle -->
+        <form method="post" class="mb-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
             <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
             <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
             <div class="form-check form-switch fs-5">
                 <input class="form-check-input" type="checkbox" role="switch"
                        id="darkModeSwitch" name="dark_mode" value="1"
                        {{ 'checked' if s.dark_mode else '' }}
                        onchange="this.form.submit()">
                 <label class="form-check-label" for="darkModeSwitch">
-                    <i class="bi bi-moon-fill me-1"></i> Dark Mode
+                    <i class="bi bi-moon-fill me-1"></i> {{ _("settings_dark_mode") }}
                 </label>
+            </div>
+        </form>
+        <!-- Language selector -->
+        <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
+            <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
+            <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
+            <label class="form-label fw-semibold" for="languageSelect">
+                <i class="bi bi-translate me-1"></i> {{ _("settings_language") }}
+            </label>
+            <div class="d-flex align-items-center gap-2">
+                <select class="form-select w-auto" id="languageSelect" name="language"
+                        onchange="this.form.submit()">
+                    <option value="de" {{ 'selected' if s.language == 'de' else '' }}>🇩🇪 Deutsch</option>
+                    <option value="en" {{ 'selected' if s.language == 'en' else '' }}>🇬🇧 English</option>
+                </select>
             </div>
         </form>
     </div>
@@ -27,42 +51,96 @@
 <!-- Backup settings -->
 <div class="card mb-4">
     <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-hdd-stack"></i> Backup</h5>
+        <h5 class="card-title"><i class="bi bi-hdd-stack"></i> {{ _("settings_backup") }}</h5>
         <form method="post" class="row g-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
             <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
             <div class="col-md-4">
-                <label class="form-label">Backup-Intervall (Minuten)</label>
+                <label class="form-label">{{ _("settings_backup_interval") }}</label>
                 <input type="number" min="1" class="form-control" name="backup_interval_minutes"
                     value="{{ s.backup_interval_minutes }}">
             </div>
             <div class="col-md-4">
-                <label class="form-label">Anzahl Sicherungskopien</label>
+                <label class="form-label">{{ _("settings_backup_copies") }}</label>
                 <input type="number" min="1" class="form-control" name="backup_copies" value="{{ s.backup_copies }}">
             </div>
             <div class="col-12 d-flex gap-2">
-                <button class="btn btn-primary"><i class="bi bi-save2"></i> Speichern</button>
+                <button class="btn btn-primary"><i class="bi bi-save2"></i> {{ _("settings_save") }}</button>
             </div>
         </form>
         <form method="post" action="{{ url_for('run_backup') }}" class="mt-2">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-secondary">
-                <i class="bi bi-hdd-stack"></i> Backup jetzt erstellen
+                <i class="bi bi-hdd-stack"></i> {{ _("settings_backup_now") }}
             </button>
         </form>
+    </div>
+</div>
+
+<!-- Tire details & seasonal tracking -->
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-speedometer"></i> {{ _("settings_tire_details_title") }}</h5>
+        <!-- Enable tire details toggle -->
+        <form method="post" class="mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
+            <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
+            <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
+            <div class="form-check form-switch fs-5">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="tireDetailsSwitch" name="enable_tire_details" value="1"
+                       {{ 'checked' if s.enable_tire_details else '' }}
+                       onchange="this.form.submit()">
+                <label class="form-check-label" for="tireDetailsSwitch">
+                    <i class="bi bi-card-checklist me-1"></i> {{ _("settings_enable_tire_details") }}
+                </label>
+            </div>
+            <small class="text-body-secondary d-block mt-1">
+                {{ _("settings_enable_tire_details_hint") }}
+            </small>
+        </form>
+        <!-- Enable seasonal tracking toggle (only visible when tire details enabled) -->
+        {% if s.enable_tire_details %}
+        <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
+            <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
+            <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="1">
+            <div class="form-check form-switch fs-5">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="seasonalTrackingSwitch" name="enable_seasonal_tracking" value="1"
+                       {{ 'checked' if s.enable_seasonal_tracking else '' }}
+                       onchange="this.form.submit()">
+                <label class="form-check-label" for="seasonalTrackingSwitch">
+                    <i class="bi bi-snow me-1"></i> {{ _("settings_enable_seasonal_tracking") }}
+                </label>
+            </div>
+            <small class="text-body-secondary d-block mt-1">
+                {{ _("settings_enable_seasonal_tracking_hint") }}
+            </small>
+        </form>
+        {% endif %}
     </div>
 </div>
 
 <!-- Position management -->
 <div class="card mb-4">
     <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-grid-3x3-gap"></i> Lagerplatz-Positionen</h5>
-        <p class="text-body-secondary">
-            Positionen komplett anpassen — eigene Positionsnamen vergeben, Reihenfolge festlegen, oder auf den Standard zurücksetzen.
-        </p>
+        <h5 class="card-title"><i class="bi bi-grid-3x3-gap"></i> {{ _("settings_positions_title") }}</h5>
+        <p class="text-body-secondary">{{ _("settings_positions_desc") }}</p>
         <a class="btn btn-outline-primary" href="{{ url_for('settings_positions') }}">
-            <i class="bi bi-pencil-square"></i> Positionen verwalten
+            <i class="bi bi-pencil-square"></i> {{ _("settings_manage_positions") }}
         </a>
     </div>
 </div>
@@ -70,7 +148,7 @@
 <!-- Update management -->
 <div class="card mb-4" id="update-card">
     <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-cloud-download"></i> Updates</h5>
+        <h5 class="card-title"><i class="bi bi-cloud-download"></i> {{ _("settings_updates_title") }}</h5>
 
         <!-- Auto-update toggle -->
         <form method="post" class="mb-3">
@@ -78,48 +156,51 @@
             <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
             <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
             <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="{{ '1' if s.enable_tire_details else '0' }}">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
             <div class="form-check form-switch fs-5">
                 <input class="form-check-input" type="checkbox" role="switch"
                        id="autoUpdateSwitch" name="auto_update" value="1"
                        {{ 'checked' if s.auto_update else '' }}
                        onchange="this.form.submit()">
                 <label class="form-check-label" for="autoUpdateSwitch">
-                    <i class="bi bi-arrow-repeat me-1"></i> Automatische Updates (03:00 Uhr)
+                    <i class="bi bi-arrow-repeat me-1"></i> {{ _("settings_auto_update") }}
                 </label>
             </div>
             <small class="text-body-secondary d-block mt-1">
-                Wenn aktiviert, wird beim Neustart des Dienstes automatisch auf die neueste Version aktualisiert.
+                {{ _("settings_auto_update_hint") }}
             </small>
         </form>
 
         <!-- Version info & check button -->
         <div class="d-flex align-items-center gap-3 mb-3">
             <span class="text-body-secondary">
-                <i class="bi bi-tag"></i> Aktuelle Version: <strong>v{{ APP_VERSION }}</strong>
+                <i class="bi bi-tag"></i> {{ _("settings_current_version") }}: <strong>v{{ APP_VERSION }}</strong>
             </span>
             <span id="updateRemoteVersion" class="text-body-secondary d-none">
-                → <strong class="text-success"></strong> verfügbar
+                → <strong class="text-success"></strong> {{ _("settings_available") }}
             </span>
             <span id="updateUpToDate" class="text-body-secondary d-none">
-                <i class="bi bi-check-circle text-success"></i> Aktuell
+                <i class="bi bi-check-circle text-success"></i> {{ _("settings_up_to_date") }}
             </span>
         </div>
 
         <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-outline-secondary" id="btnCheckUpdate">
-                <i class="bi bi-search"></i> Jetzt prüfen
+                <i class="bi bi-search"></i> {{ _("settings_check_now") }}
             </button>
             <form method="post" action="{{ url_for('update_now') }}" id="updateNowForm" class="d-none">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-success">
-                    <i class="bi bi-cloud-download"></i> Jetzt aktualisieren &amp; neustarten
+                    <i class="bi bi-cloud-download"></i> {{ _("settings_update_now") }}
                 </button>
             </form>
         </div>
 
         <!-- Release notes (shown when update is available) -->
         <div id="updateReleaseNotes" class="mt-3 d-none">
-            <h6><i class="bi bi-journal-text"></i> Änderungen:</h6>
+            <h6><i class="bi bi-journal-text"></i> {{ _("settings_release_notes") }}</h6>
             <div class="card">
                 <div class="card-body small update-release-body" style="max-height:200px;overflow-y:auto;">
                 </div>
