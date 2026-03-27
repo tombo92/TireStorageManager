@@ -214,11 +214,14 @@ def create_update_task(
 ) -> None:
     """Step 8 – schedule a daily service restart at 03:00."""
     task_name = f"{APP_NAME}_DailyUpdate"
+    # /TR must be wrapped in cmd /c so the shell evaluates the & chaining.
+    # Without cmd /c, schtasks passes the literal & to sc.exe, which only
+    # runs the stop command and never restarts the service.
     cmd = (
         f'schtasks /Create /F /TN "{task_name}" '
-        f'/TR "sc.exe stop {SERVICE_NAME} & '
-        f'timeout /t 5 & '
-        f'sc.exe start {SERVICE_NAME}" '
+        f'/TR "cmd /c \\"sc.exe stop {SERVICE_NAME} & '
+        f'timeout /t 5 /nobreak >nul & '
+        f'sc.exe start {SERVICE_NAME}\\"" '
         f'/SC DAILY /ST 03:00 /RL HIGHEST'
     )
     result = run_shell(cmd)

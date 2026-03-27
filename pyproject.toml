@@ -15,3 +15,6 @@ include = ["tsm*", "installer*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "integration: real OS / EXE tests (require Windows + admin + built EXE)",
+]
