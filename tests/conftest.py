@@ -29,9 +29,14 @@ from tsm.models import Base, WheelSet, Settings
 
 @pytest.fixture(scope="function")
 def db_engine():
-    """Create a fresh in-memory SQLite engine per test."""
+    """Create a fresh in-memory SQLite engine per test.
+
+    The URL is asserted to be in-memory so that a future misconfiguration
+    cannot silently cause tests to write to the real on-disk database.
+    """
+    url = "sqlite:///:memory:"
     eng = create_engine(
-        "sqlite:///:memory:",
+        url,
         echo=False,
         future=True,
         connect_args={"check_same_thread": False},
@@ -45,6 +50,9 @@ def db_engine():
         cur.close()
 
     Base.metadata.create_all(bind=eng)
+    assert ":memory:" in str(eng.url), (
+        f"Tests must use an in-memory SQLite DB, got: {eng.url}"
+    )
     yield eng
     eng.dispose()
 

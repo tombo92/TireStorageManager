@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sqlite3
 import subprocess
 import time
 from pathlib import Path
@@ -98,8 +99,16 @@ def deploy_app_exe(
     install_dir: Path,
     log: Optional[Callable[[str], None]] = None,
 ) -> Path:
-    """Step 3 – copy TireStorageManager.exe into *install_dir*."""
+    """Step 3 – copy TireStorageManager.exe into *install_dir*.
+
+    If the service is still running (reinstall scenario) the EXE will be
+    locked on Windows.  We stop the service first so the file handle is
+    released before attempting the copy.
+    """
     target = install_dir / f"{APP_NAME}.exe"
+    if target.exists():
+        # Service may hold the file open – stop it before overwriting.
+        stop_service(install_dir, log=log)
     if not copy_file(src, target, overwrite=True):
         raise RuntimeError(f"{APP_NAME}.exe nicht im Payload gefunden.")
     if log:
@@ -209,19 +218,56 @@ def start_service(
             log("   ✓ Dienst gestartet (via NSSM).")
 
 
+def validate_port(value: str) -> int:
+    """Parse and validate a TCP port string.
+
+    Returns the port as an int on success.
+    Raises ValueError with a human-readable message on failure.
+    """
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"'{value}' ist keine gültige Zahl."
+        )
+    if not 1 <= port <= 65535:
+        raise ValueError(
+            f"Port {port} liegt außerhalb des gültigen Bereichs "
+            f"(1–65535)."
+        )
+    return port
+
+
+def resolve_display_name(raw: str) -> str:
+    """Return *raw* stripped, falling back to DEFAULT_DISPLAY_NAME."""
+    return raw.strip() or "Reifenmanager"
+
+
 def create_update_task(
     log: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Step 8 – schedule a daily service restart at 03:00."""
     task_name = f"{APP_NAME}_DailyUpdate"
-    cmd = (
-        f'schtasks /Create /F /TN "{task_name}" '
-        f'/TR "sc.exe stop {SERVICE_NAME} & '
-        f'timeout /t 5 & '
-        f'sc.exe start {SERVICE_NAME}" '
-        f'/SC DAILY /ST 03:00 /RL HIGHEST'
+    # /TR must be wrapped in cmd /c so the shell evaluates the & chaining.
+    # Without cmd /c, schtasks passes the literal & to sc.exe, which only
+    # runs the stop command and never restarts the service.
+    #
+    # Use run_cmd (list, no shell=True) so Python does NOT apply any
+    # additional shell quoting to the /TR value.  The /TR argument is
+    # passed directly to schtasks.exe as a single token.
+    tr_value = (
+        f"cmd /c \"sc.exe stop {SERVICE_NAME} & "
+        f"timeout /t 5 /nobreak >nul & "
+        f"sc.exe start {SERVICE_NAME}\""
     )
-    result = run_shell(cmd)
+    result = run_cmd([
+        "schtasks", "/Create", "/F",
+        "/TN", task_name,
+        "/TR", tr_value,
+        "/SC", "DAILY",
+        "/ST", "03:00",
+        "/RL", "HIGHEST",
+    ], check=False)
     if log:
         if result.returncode == 0:
             log(f"   ✓ Täglicher Neustart-Task '{task_name}' um 03:00 erstellt.")
@@ -229,17 +275,145 @@ def create_update_task(
             log(f"   ℹ Task-Erstellung: {result.stderr.strip()}")
 
 
+DB_FILENAME = "wheel_storage.db"
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+
+# Minimum columns required per table for the application to function.
+# Extra columns (from schema migrations) are accepted; missing required
+# columns cause the restore to be rejected before touching the live DB.
+_REQUIRED_SCHEMA: dict[str, set[str]] = {
+    "wheel_sets": {
+        "id", "customer_name", "license_plate",
+        "car_type", "storage_position",
+    },
+    "settings": {
+        "id", "backup_interval_minutes", "backup_copies",
+    },
+    "audit_log": {
+        "id", "action",
+    },
+}
+
+
+def validate_sqlite_file(path: Path) -> None:
+    """Raise ValueError if *path* is not a usable SQLite3 database.
+
+    Checks performed (in order):
+      1. File exists.
+      2. File size ≥ 16 bytes.
+      3. SQLite3 magic header present (file is a real DB, not a CSV/ZIP).
+      4. Required tables and their mandatory columns are present as a
+         subset — extra tables/columns from older or newer schema versions
+         are accepted; only missing required columns are rejected.
+    """
+    if not path.exists():
+        raise ValueError(f"Datei nicht gefunden: {path}")
+    if path.stat().st_size < 16:
+        raise ValueError(
+            f"Datei zu klein für eine SQLite-Datenbank: {path}")
+    with open(path, "rb") as fh:
+        header = fh.read(16)
+    if header != _SQLITE_MAGIC:
+        raise ValueError(
+            f"'{path.name}' ist keine gültige SQLite3-Datenbank "
+            f"(falscher Datei-Header)."
+        )
+    # Schema check — open read-only (uri mode) so we never modify the file.
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.OperationalError as exc:
+        raise ValueError(
+            f"Datenbank konnte nicht geöffnet werden: {exc}"
+        ) from exc
+    try:
+        cur = con.cursor()
+        # Collect all table names present in the file.
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        existing_tables = {row[0] for row in cur.fetchall()}
+
+        missing_tables = set(_REQUIRED_SCHEMA) - existing_tables
+        if missing_tables:
+            raise ValueError(
+                f"Pflicht-Tabellen fehlen in der Datenbank: "
+                f"{', '.join(sorted(missing_tables))}."
+            )
+
+        # For each required table, check the column subset.
+        for table, required_cols in _REQUIRED_SCHEMA.items():
+            cur.execute(f"PRAGMA table_info({table})")  # noqa: S608
+            present_cols = {row[1] for row in cur.fetchall()}
+            missing_cols = required_cols - present_cols
+            if missing_cols:
+                raise ValueError(
+                    f"Pflicht-Spalten fehlen in Tabelle '{table}': "
+                    f"{', '.join(sorted(missing_cols))}."
+                )
+    finally:
+        con.close()
+
+
+def restore_database(
+    source_db: Path,
+    data_dir: Path,
+    install_dir: Path,
+    log: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Replace the live database with *source_db* (e.g. a backup).
+
+    Steps:
+      1. Validate *source_db* is a readable SQLite3 file.
+      2. Stop the Windows service so file handles are released.
+      3. Back up the current DB (renamed with a timestamp suffix).
+      4. Copy *source_db* to the live DB path.
+      5. Restart the service.
+
+    Raises ValueError for validation failures, RuntimeError for I/O
+    failures so the caller can surface a clean message.
+    """
+    validate_sqlite_file(source_db)
+
+    live_db = data_dir / "db" / DB_FILENAME
+    backup_dir = data_dir / "backups"
+    ensure_dir(backup_dir)
+
+    # Stop service before touching the DB file.
+    stop_service(install_dir, log=log)
+
+    # Backup the current DB if it exists.
+    if live_db.exists():
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = backup_dir / f"wheel_storage_{ts}.db"
+        shutil.copy2(live_db, backup_path)
+        if log:
+            log(f"   ✓ Backup erstellt: {backup_path.name}")
+
+    # Replace the live DB.
+    ensure_dir(live_db.parent)
+    shutil.copy2(source_db, live_db)
+    if log:
+        log(f"   ✓ Datenbank wiederhergestellt: {live_db}")
+
+    # Restart the service.
+    nssm = install_dir / "nssm.exe"
+    start_service(nssm, log=log)
+
+
 def create_desktop_shortcut(
     url: str,
     display_name: str = "Reifenmanager",
+    icon_path: Optional[Path] = None,
     log: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Step 9 – create a .url Internet Shortcut on the All Users Desktop."""
     desktop = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"
     shortcut = desktop / f"{display_name}.url"
-    shortcut.write_text(
-        f"[InternetShortcut]\nURL={url}\n", encoding="utf-8"
-    )
+    content = f"[InternetShortcut]\nURL={url}\n"
+    if icon_path and icon_path.exists():
+        content += f"IconFile={icon_path}\nIconIndex=0\n"
+    shortcut.write_text(content, encoding="utf-8")
     if log:
         log(f"   ✓ Desktop-Verknüpfung erstellt: {shortcut}")
 

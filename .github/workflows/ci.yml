@@ -1,4 +1,4 @@
-name: CI – Bump, Test, Build & Release
+name: CI
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - 'static/**'
       - 'requirements*.txt'
       - 'pyproject.toml'
+      - '.github/workflows/**'
   pull_request:
     paths:
       - '**.py'
@@ -15,9 +16,19 @@ on:
       - 'static/**'
       - 'requirements*.txt'
       - 'pyproject.toml'
+      - '.github/workflows/**'
+  # ── TEMPORARY: manual trigger for release-test on any branch ──
+  # Remove this block before creating the PR to develop.
+  workflow_dispatch:
+    inputs:
+      run_release_test:
+        description: 'Run release-test job (requires built EXEs)'
+        required: false
+        default: 'true'
+  # ── END TEMPORARY ─────────────────────────────────────────────
 
 permissions:
-  contents: write   # needed for version bump commits, tags, and releases
+  contents: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -26,20 +37,47 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# ──────────────────────────────────────────────────────────────
-# JOB 1 – Run unit tests  (every push & PR, all branches)
-# ──────────────────────────────────────────────────────────────
 jobs:
-  test:
-    runs-on: ubuntu-latest
 
+  # ────────────────────────────────────────────────────────────────
+  # changes – all branches
+  # Detects which parts of the codebase changed.
+  # ────────────────────────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app:       ${{ steps.filter.outputs.app }}
+      installer: ${{ steps.filter.outputs.installer }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'tsm/**'
+              - 'templates/**'
+              - 'static/**'
+              - 'config.py'
+              - 'requirements.txt'
+            installer:
+              - 'installer/**'
+
+  # ────────────────────────────────────────────────────────────────
+  # test-app – all branches, only when app files changed
+  # ────────────────────────────────────────────────────────────────
+  test-app:
+    needs: [ changes ]
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
@@ -50,30 +88,31 @@ jobs:
           pip install -r requirements-test.txt
 
       - name: Run tests
-        run: python -m pytest tests/ -v --tb=short --junitxml=test-results.xml
+        run: >
+          python -m pytest tests/ -v --tb=long
+          --junitxml=test-results.xml
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-app-results-${{ github.run_id }}
           path: test-results.xml
 
-  # ──────────────────────────────────────────────────────────────
-  # JOB 2 – Build EXEs on Windows  (only on push, after tests pass)
-  # ──────────────────────────────────────────────────────────────
-  build:
-    needs: [ test ]
-    if: github.event_name == 'push' && needs.test.result == 'success'
-    runs-on: windows-latest
-
+  # ────────────────────────────────────────────────────────────────
+  # test-installer – all branches, only when installer/ changed
+  # Runs independently; does NOT block the build chain.
+  # ────────────────────────────────────────────────────────────────
+  test-installer:
+    needs: [ changes ]
+    if: needs.changes.outputs.installer == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
@@ -81,153 +120,45 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -r requirements-test.txt
 
-      - name: Build TireStorageManager.exe
-        run: pyinstaller TireStorageManager.spec --noconfirm
+      - name: Run installer unit tests
+        run: >
+          python -m pytest tests/test_installer_smoke.py -v --tb=long
+          --junitxml=test-installer-results.xml
 
-      - name: Copy app EXE into payload
-        shell: pwsh
-        run: |
-          Copy-Item "dist\TireStorageManager.exe" `
-            -Destination "payload\TireStorageManager.exe" -Force
-
-      - name: Mark develop builds as pre-release
-        if: github.ref_name == 'develop'
-        shell: pwsh
-        run: |
-          # Marker file bundled into the installer payload so the
-          # installer GUI and the app EXE both know they are test builds
-          New-Item -ItemType File -Path "payload\PRERELEASE" -Force
-          echo "TSM_PRERELEASE=1" >> $env:GITHUB_ENV
-
-      - name: Build TSM-Installer.exe
-        run: pyinstaller installer/TSM-Installer.spec --noconfirm
-
-      - name: Smoke-test TireStorageManager.exe
-        shell: pwsh
-        run: |
-          # --no-update prevents the EXE from self-updating and exiting
-          # before the HTTP probe can connect.
-          $proc = Start-Process -FilePath "dist\TireStorageManager.exe" `
-            -ArgumentList "--port","59123","--host","127.0.0.1",
-                          "--data-dir","$env:RUNNER_TEMP\tsm_smoke",
-                          "--no-update" `
-            -PassThru -NoNewWindow
-
-          # ── Wait for the server to come up (up to 30 s) ─────────────
-          $ok = $false
-          for ($i = 0; $i -lt 30; $i++) {
-            Start-Sleep -Seconds 1
-            try {
-              $r = Invoke-WebRequest -Uri "http://127.0.0.1:59123/" `
-                     -UseBasicParsing -TimeoutSec 3
-              if ($r.StatusCode -eq 200) { $ok = $true; break }
-            } catch {}
-          }
-          if (-not $ok) {
-            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-            Write-Error "EXE did not respond on :59123 within 30 s"
-            exit 1
-          }
-          Write-Host "EXE is up – running full smoke test suite ..."
-
-          # ── Full HTTP smoke test (stdlib-only Python) ─────────────────
-          python tools/smoke_test.py `
-            --base-url  http://127.0.0.1:59123 `
-            --exe-path  dist\TireStorageManager.exe `
-            --data-dir  "$env:RUNNER_TEMP\tsm_smoke" `
-            --port      59123
-          $smokeExit = $LASTEXITCODE
-
-          # ── Tear down EXE ─────────────────────────────────────────────
-          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-
-          if ($smokeExit -ne 0) {
-            Write-Error "Smoke test suite reported failures (exit $smokeExit)"
-            exit 1
-          }
-          Write-Host "All smoke tests passed."
-
-      - name: Sign EXEs (self-signed certificate)
-        if: env.CODE_SIGN_PFX_BASE64 != ''
-        shell: pwsh
-        env:
-          CODE_SIGN_PFX_BASE64: ${{ secrets.CODE_SIGN_PFX_BASE64 }}
-          CODE_SIGN_PASSWORD:   ${{ secrets.CODE_SIGN_PASSWORD }}
-        run: |
-          # Write PFX from secret
-          $bytes = [Convert]::FromBase64String($env:CODE_SIGN_PFX_BASE64)
-          $pfx   = "$env:RUNNER_TEMP\tsm_codesign.pfx"
-          [IO.File]::WriteAllBytes($pfx, $bytes)
-
-          # Locate signtool.exe (comes with Windows SDK on windows-latest)
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
-            -Recurse -Filter signtool.exe |
-            Where-Object { $_.FullName -match "x64" } |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1 -ExpandProperty FullName
-
-          $ts  = "http://timestamp.digicert.com"
-          $pwd = $env:CODE_SIGN_PASSWORD
-
-          foreach ($exe in @("dist\TireStorageManager.exe", "dist\TSM-Installer.exe")) {
-            & $signtool sign /f $pfx /p $pwd /fd sha256 /td sha256 /tr $ts $exe
-            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $exe" }
-            Write-Host "✓ Signed: $exe"
-          }
-
-          Remove-Item $pfx -Force
-
-      - name: Read version from config.py
-        id: version
-        shell: pwsh
-        run: |
-          $ver = python tools/get_version.py
-          echo "APP_VERSION=$ver" >> $env:GITHUB_OUTPUT
-
-      - name: Upload TireStorageManager.exe artifact
+      - name: Upload installer test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: TireStorageManager
-          path: dist/TireStorageManager.exe
+          name: test-installer-results-${{ github.run_id }}
+          path: test-installer-results.xml
 
-      - name: Upload TSM-Installer.exe artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TSM-Installer
-          path: dist/TSM-Installer.exe
-
-    outputs:
-      app_version: ${{ steps.version.outputs.APP_VERSION }}
-
-  # ──────────────────────────────────────────────────────────────
-  # JOB 3 – Bump VERSION in config.py  (only after build passes,
-  #          only on master/develop pushes)
-  #   • develop push → patch bump  (1.2.3 → 1.2.4)
-  #   • master  push → minor bump  (1.2.3 → 1.3.0), then sync to develop
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # bump – develop + master only
+  # Patch bump on develop (1.2.3 → 1.2.4), minor on master (→ 1.3.0).
+  # Requires test-app to pass (or be skipped when app unchanged).
+  # ────────────────────────────────────────────────────────────────
   bump:
-    needs: [ build ]
+    needs: [ changes, test-app ]
     if: >
-      needs.build.result == 'success' &&
+      always() &&
+      (needs.test-app.result == 'success' || needs.test-app.result == 'skipped') &&
+      needs.changes.outputs.app == 'true' &&
       github.event_name == 'push' &&
       github.actor != 'github-actions[bot]' &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.bump.outputs.NEW_VERSION }}
-
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Bump version in config.py
         id: bump
@@ -240,6 +171,452 @@ jobs:
           echo "NEW_VERSION=$NEW_VERSION"
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Upload bumped files
+        uses: actions/upload-artifact@v4
+        with:
+          name: bumped-version-files
+          path: |
+            config.py
+            CHANGELOG.md
+
+  # ────────────────────────────────────────────────────────────────
+  # build-app – all branches
+  # Runs when unit tests pass or are skipped (no app changes).
+  # Downloads bumped config.py on develop/master; uses source otherwise.
+  # ────────────────────────────────────────────────────────────────
+  build-app:
+    needs: [ test-app, bump ]
+    if: >
+      always() &&
+      (needs.test-app.result == 'success' || needs.test-app.result == 'skipped') &&
+      (needs.bump.result == 'success' || needs.bump.result == 'skipped') &&
+      github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download bumped config.py
+        if: needs.bump.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: bumped-version-files
+          path: .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build TireStorageManager.exe
+        run: pyinstaller TireStorageManager.spec --noconfirm
+
+      - name: Upload build-app failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-app-failure-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            build/TireStorageManager/warn-TireStorageManager.txt
+            build/TireStorageManager/*.log
+            *.log
+
+      - name: Sign TireStorageManager.exe
+        if: env.CODE_SIGN_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          CODE_SIGN_PFX_BASE64: ${{ secrets.CODE_SIGN_PFX_BASE64 }}
+          CODE_SIGN_PASSWORD:   ${{ secrets.CODE_SIGN_PASSWORD }}
+        run: |
+          $bytes = [Convert]::FromBase64String($env:CODE_SIGN_PFX_BASE64)
+          $pfx   = "$env:RUNNER_TEMP\tsm_codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, $bytes)
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "x64" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /f $pfx /p $env:CODE_SIGN_PASSWORD /fd sha256 /td sha256 `
+              /tr http://timestamp.digicert.com "dist\TireStorageManager.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Signing failed for TireStorageManager.exe" }
+          Remove-Item $pfx -Force
+
+      - name: Upload TireStorageManager.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: TireStorageManager
+          path: dist/TireStorageManager.exe
+
+  # ────────────────────────────────────────────────────────────────
+  # smoke-app – all branches, only when app files changed
+  # ────────────────────────────────────────────────────────────────
+  smoke-app:
+    needs: [ changes, build-app ]
+    if: >
+      always() &&
+      needs.build-app.result == 'success' &&
+      needs.changes.outputs.app == 'true'
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download TireStorageManager.exe
+        uses: actions/download-artifact@v4
+        with:
+          name: TireStorageManager
+          path: dist
+
+      - name: Smoke-test TireStorageManager.exe
+        shell: pwsh
+        run: |
+          $smokeDir  = "$env:RUNNER_TEMP\tsm_smoke"
+          $logDir    = "$env:RUNNER_TEMP\tsm_smoke_logs"
+          $smokeLog  = "$logDir\smoke_app.log"
+          $smokeExe  = "$env:RUNNER_TEMP\tsm_smoke_run\TireStorageManager.exe"
+          New-Item -ItemType Directory -Path (Split-Path $smokeExe) -Force | Out-Null
+          New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+          Copy-Item "dist\TireStorageManager.exe" $smokeExe -Force
+
+          $proc = Start-Process -FilePath $smokeExe `
+            -ArgumentList "--port","59123","--host","127.0.0.1",
+                          "--data-dir",$smokeDir,"--no-update" `
+            -PassThru -NoNewWindow
+
+          $ok = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              if ((Invoke-WebRequest -Uri "http://127.0.0.1:59123/" `
+                    -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) {
+                $ok = $true; break
+              }
+            } catch {}
+          }
+          if (-not $ok) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            "EXE did not respond on :59123 within 30 s" | Tee-Object -FilePath $smokeLog
+            exit 1
+          }
+
+          python tools/smoke_test.py `
+            --base-url http://127.0.0.1:59123 `
+            --exe-path $smokeExe `
+            --data-dir $smokeDir `
+            --port     59123 2>&1 | Tee-Object -FilePath $smokeLog
+          $smokeExit = $LASTEXITCODE
+
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          try { $proc.WaitForExit(10000) } catch {}
+
+          if ($smokeExit -ne 0) {
+            Write-Error "Smoke tests failed (exit $smokeExit)"
+            exit 1
+          }
+
+      - name: Upload smoke-app failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-app-failure-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/tsm_smoke_logs/
+            ${{ runner.temp }}/tsm_smoke/logs/
+
+  # ────────────────────────────────────────────────────────────────
+  # build-installer – all branches
+  # Runs when build-app passed AND smoke-app passed or was skipped
+  # (skipped = no app changes, but installer changes present).
+  # ────────────────────────────────────────────────────────────────
+  build-installer:
+    needs: [ changes, bump, build-app, smoke-app ]
+    if: >
+      always() &&
+      needs.build-app.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
+      (needs.bump.result == 'success' || needs.bump.result == 'skipped') &&
+      github.actor != 'github-actions[bot]' &&
+      needs.changes.outputs.installer == 'true'
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download bumped config.py
+        if: needs.bump.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: bumped-version-files
+          path: .
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download TireStorageManager.exe into payload
+        uses: actions/download-artifact@v4
+        with:
+          name: TireStorageManager
+          path: payload
+
+      - name: Mark develop builds as pre-release
+        if: github.ref_name == 'develop'
+        shell: pwsh
+        run: |
+          New-Item -ItemType File -Path "payload\PRERELEASE" -Force
+          echo "TSM_PRERELEASE=1" >> $env:GITHUB_ENV
+
+      - name: Build TSM-Installer.exe
+        run: pyinstaller installer/TSM-Installer.spec --noconfirm
+
+      - name: Upload build-installer failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-installer-failure-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            build/TSM-Installer/warn-TSM-Installer.txt
+            build/TSM-Installer/*.log
+            *.log
+
+      - name: Sign TSM-Installer.exe
+        if: env.CODE_SIGN_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          CODE_SIGN_PFX_BASE64: ${{ secrets.CODE_SIGN_PFX_BASE64 }}
+          CODE_SIGN_PASSWORD:   ${{ secrets.CODE_SIGN_PASSWORD }}
+        run: |
+          $bytes = [Convert]::FromBase64String($env:CODE_SIGN_PFX_BASE64)
+          $pfx   = "$env:RUNNER_TEMP\tsm_codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, $bytes)
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "x64" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /f $pfx /p $env:CODE_SIGN_PASSWORD /fd sha256 /td sha256 `
+              /tr http://timestamp.digicert.com "dist\TSM-Installer.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Signing failed for TSM-Installer.exe" }
+          Remove-Item $pfx -Force
+
+      - name: Upload TSM-Installer.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: TSM-Installer
+          path: dist/TSM-Installer.exe
+
+  # ────────────────────────────────────────────────────────────────
+  # smoke-installer – all branches, only when installer/ changed
+  # ────────────────────────────────────────────────────────────────
+  smoke-installer:
+    needs: [ changes, build-installer ]
+    if: >
+      always() &&
+      needs.build-installer.result == 'success' &&
+      needs.changes.outputs.installer == 'true'
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download TSM-Installer.exe
+        uses: actions/download-artifact@v4
+        with:
+          name: TSM-Installer
+          path: dist
+
+      - name: Smoke-test TSM-Installer.exe
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $logDir  = "$env:RUNNER_TEMP\tsm_installer_logs"
+          New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+
+          python tools/smoke_test_installer.py `
+            --exe         "dist\TSM-Installer.exe" `
+            --install-dir "$env:RUNNER_TEMP\tsm_installer_ci" `
+            --data-dir    "$env:RUNNER_TEMP\tsm_installer_data" `
+            --port        59200 2>&1 | Tee-Object -FilePath "$logDir\smoke_installer.log"
+          $smokeExit = $LASTEXITCODE
+
+          if ($smokeExit -ne 0) {
+            Write-Error "Installer smoke test failed (exit $smokeExit)"
+            exit 1
+          }
+
+      - name: Upload smoke-installer failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-installer-failure-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/tsm_installer_logs/
+            ${{ runner.temp }}/tsm_installer_data/logs/
+            ${{ runner.temp }}/tsm_installer_ci/
+
+  # ────────────────────────────────────────────────────────────────
+  # release-test – master PRs + manual dispatch (any branch)
+  # Full release acceptance test (Phases 1–4).
+  # Requires smoke-app AND smoke-installer (or skipped) to pass.
+  # On workflow_dispatch: smoke jobs may be skipped if no relevant
+  # files changed; release-test will only run if build-app succeeded.
+  # ────────────────────────────────────────────────────────────────
+  release-test:
+    needs: [ build-app, smoke-app, build-installer, smoke-installer ]
+    if: >
+      always() &&
+      needs.build-app.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
+      (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
+      (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
+      (
+        (github.event_name == 'pull_request' && github.base_ref == 'master')
+        || (github.event_name == 'push' && github.ref_name == 'master')
+        || github.event_name == 'workflow_dispatch'
+      )
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download TireStorageManager.exe
+        uses: actions/download-artifact@v4
+        with:
+          name: TireStorageManager
+          path: dist
+
+      - name: Download TSM-Installer.exe
+        uses: actions/download-artifact@v4
+        with:
+          name: TSM-Installer
+          path: dist
+
+      - name: Run release acceptance test
+        shell: pwsh
+        run: |
+          $logDir = "$env:RUNNER_TEMP\tsm_rat_logs"
+          New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+
+          python tools/release_acceptance_test.py `
+            --app-exe     "dist\TireStorageManager.exe" `
+            --inst-exe    "dist\TSM-Installer.exe" `
+            --install-dir "$env:RUNNER_TEMP\tsm_rat_install" `
+            --data-dir    "$env:RUNNER_TEMP\tsm_rat_data" `
+            --app-port    59300 `
+            --inst-port   59301 `
+            --task-repeats  3 `
+            --update-repeats 3 2>&1 | Tee-Object -FilePath "$logDir\release_acceptance_test.log"
+          $ratExit = $LASTEXITCODE
+
+          if ($ratExit -ne 0) {
+            Write-Error "Release acceptance test failed (exit $ratExit)"
+            exit 1
+          }
+
+      - name: Upload release-test failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-failure-${{ github.run_id }}
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/tsm_rat_logs/
+            ${{ runner.temp }}/tsm_rat_data/logs/
+            ${{ runner.temp }}/tsm_rat_data/db/
+            ${{ runner.temp }}/tsm_rat_data/backups/
+            ${{ runner.temp }}/tsm_rat_upgrade_data/logs/
+            ${{ runner.temp }}/tsm_rat_upgrade_data/db/
+
+  # ────────────────────────────────────────────────────────────────
+  # commit-bump – develop + master only
+  # Commits bumped version and pushes git tag.
+  # Requires all previous jobs to pass or be legitimately skipped.
+  # On master: release-test must have passed.
+  # ────────────────────────────────────────────────────────────────
+  commit-bump:
+    needs: [ bump, build-app, smoke-app, build-installer, smoke-installer, test-installer, release-test ]
+    if: >
+      always() &&
+      needs.bump.result == 'success' &&
+      needs.build-app.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
+      (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
+      (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
+      (needs.test-installer.result == 'success' || needs.test-installer.result == 'skipped') &&
+      (needs.release-test.result == 'success' || needs.release-test.result == 'skipped') &&
+      (
+        github.ref_name != 'master' ||
+        needs.release-test.result == 'success'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Download bumped files
+        uses: actions/download-artifact@v4
+        with:
+          name: bumped-version-files
+          path: .
+
       - name: Commit, tag & push
         run: |
           if git diff --quiet; then
@@ -249,11 +626,11 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add config.py CHANGELOG.md
-          git commit -m "chore(version): bump to ${{ steps.bump.outputs.NEW_VERSION }} [skip ci]"
-          git tag -a "v${{ steps.bump.outputs.NEW_VERSION }}" \
-                    -m "Release ${{ steps.bump.outputs.NEW_VERSION }}"
+          git commit -m "chore(version): bump to ${{ needs.bump.outputs.new_version }} [skip ci]"
+          git tag -a "v${{ needs.bump.outputs.new_version }}" \
+                    -m "Release ${{ needs.bump.outputs.new_version }}"
           git push origin HEAD:${{ github.ref_name }}
-          git push origin "v${{ steps.bump.outputs.NEW_VERSION }}"
+          git push origin "v${{ needs.bump.outputs.new_version }}"
 
       - name: Sync bumped version back to develop (master only)
         if: github.ref_name == 'master'
@@ -268,28 +645,37 @@ jobs:
           fi
           git push origin HEAD:develop
 
-  # ──────────────────────────────────────────────────────────────
-  # JOB 4 – Create GitHub Release
-  #   master  → official release  (prerelease: false)
-  #   develop → test release      (prerelease: true, tag: v…-dev)
-  # ──────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # release – develop + master only, after commit-bump
+  # master  → official release (prerelease: false)
+  # develop → test release     (prerelease: true, tag: v…-dev)
+  # ────────────────────────────────────────────────────────────────
   release:
-    needs: [ build, bump ]
+    needs: [ bump, build-app, smoke-app, build-installer, smoke-installer, test-installer, commit-bump, release-test ]
     if: >
-      needs.build.result == 'success' &&
+      always() &&
       needs.bump.result == 'success' &&
+      needs.build-app.result == 'success' &&
+      needs.commit-bump.result == 'success' &&
+      (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
+      (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
+      (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
+      (needs.test-installer.result == 'success' || needs.test-installer.result == 'skipped') &&
+      (needs.release-test.result == 'success' || needs.release-test.result == 'skipped') &&
+      (
+        github.ref_name != 'master' ||
+        needs.release-test.result == 'success'
+      ) &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Extract changelog notes
         id: changelog
@@ -298,21 +684,19 @@ jobs:
           if [ -z "$NOTES" ]; then
             NOTES="Siehe [Commit-Historie](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }})."
           fi
-          # Write multi-line string to GITHUB_OUTPUT
           {
             echo "NOTES<<CHANGELOG_EOF"
             echo "$NOTES"
             echo "CHANGELOG_EOF"
           } >> $GITHUB_OUTPUT
 
-      - name: Download installer artifact
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           name: TSM-Installer
           path: release-assets
 
-      - name: Download app artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: TireStorageManager
           path: release-assets
@@ -321,24 +705,28 @@ jobs:
         id: meta
         run: |
           if [ "${{ github.ref_name }}" = "master" ]; then
-            echo "tag=v${{ needs.bump.outputs.new_version }}" >> $GITHUB_OUTPUT
-            echo "name=TireStorageManager v${{ needs.bump.outputs.new_version }}" >> $GITHUB_OUTPUT
-            echo "prerelease=false" >> $GITHUB_OUTPUT
-            echo "body_prefix=" >> $GITHUB_OUTPUT
+            echo "tag=v${{ needs.bump.outputs.new_version }}"                              >> $GITHUB_OUTPUT
+            echo "name=TireStorageManager v${{ needs.bump.outputs.new_version }}"          >> $GITHUB_OUTPUT
+            echo "prerelease=false"                                                         >> $GITHUB_OUTPUT
+            echo "warning="                                                                 >> $GITHUB_OUTPUT
           else
-            echo "tag=v${{ needs.bump.outputs.new_version }}-dev" >> $GITHUB_OUTPUT
-            echo "name=⚠ TEST v${{ needs.bump.outputs.new_version }}-dev (develop)" >> $GITHUB_OUTPUT
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-            printf 'body_prefix=> ⚠ **TEST-BUILD** – Nicht für den produktiven Einsatz.\n' >> $GITHUB_OUTPUT
+            echo "tag=v${{ needs.bump.outputs.new_version }}-dev"                          >> $GITHUB_OUTPUT
+            echo "name=⚠ TEST v${{ needs.bump.outputs.new_version }}-dev (develop)"       >> $GITHUB_OUTPUT
+            echo "prerelease=true"                                                          >> $GITHUB_OUTPUT
+            echo "warning=> ⚠ **TEST-BUILD** – Nicht für den produktiven Einsatz geeignet. Commit: \`${{ github.sha }}\`" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create or update GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: ${{ steps.meta.outputs.name }}
+          tag_name:    ${{ steps.meta.outputs.tag }}
+          name:        ${{ steps.meta.outputs.name }}
+          prerelease:  ${{ steps.meta.outputs.prerelease }}
+          make_latest: ${{ github.ref_name == 'master' }}
+          draft: false
           body: |
-            ${{ steps.meta.outputs.body_prefix }}
+            ${{ steps.meta.outputs.warning }}
+
             ## TireStorageManager v${{ needs.bump.outputs.new_version }}
 
             ${{ steps.changelog.outputs.NOTES }}
@@ -349,11 +737,11 @@ jobs:
             |-------|-------------|
             | `TSM-Installer.exe` | Installer/Deinstaller mit GUI |
             | `TireStorageManager.exe` | Standalone-Anwendung (ohne Installer) |
+
+            ---
+            📋 [Vollständiges Changelog](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md)
           files: |
             release-assets/TSM-Installer.exe
             release-assets/TireStorageManager.exe
-          draft: false
-          prerelease: ${{ steps.meta.outputs.prerelease }}
-          make_latest: ${{ github.ref_name == 'master' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

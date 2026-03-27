@@ -18,23 +18,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.5] – 2026-03-25
+## [1.5.7] – 2026-03-27
 
-## [1.4.4] – 2026-03-25
+### Changed
+- **CI/CD pipeline restructured into a single `ci.yml`** with clearly separated jobs:
+  - `changes` — path-change detection
+  - `test-app` — unit tests (all branches/PRs)
+  - `test-installer` — installer unit tests (only when `installer/` changed)
+  - `bump` — version bump artifact (master/develop only)
+  - `build` — Windows EXE build, code signing, artifact upload (all branches/PRs)
+  - `smoke` — EXE smoke tests as a separate job (all branches/PRs)
+  - `commit-bump` — commits version bump and git tag (master/develop, requires smoke + test-installer pass)
+  - `release` — creates GitHub Release (master/develop, requires smoke + test-installer pass)
+- Build and EXE smoke tests now run on **every branch and PR** (not only `master`/`develop`). Version bump commit and release are still restricted to `master`/`develop`.
+- `commit-bump` and `release` are now blocked if `smoke` or `test-installer` fail — a failing smoke or installer test prevents any version from being committed or released. Both jobs may be skipped (no change in their scope), but never silently ignored.
+- Installer `restore-db` headless CLI mode and `RestoreProgressWindow` GUI for restoring a database from a backup file with schema validation.
+- `validate_sqlite_file()` extended with schema validation — checks required tables (`wheel_sets`, `settings`, `audit_log`) and mandatory columns via `sqlite3` read-only URI mode before accepting a restore candidate.
+- Secret key (`TSM_SECRET_KEY`) field in installer GUI marked as optional with explanatory hint text.
 
-## [1.4.4] – 2026-03-25
+## [1.5.6] – 2026-03-27
+
+## [1.5.5] – 2026-03-27
+
+## [1.5.4] – 2026-03-26
+
+## [1.5.3] – 2026-03-26
 ### Added
-- **German licence-plate validation** — the wheelset form enforces the standard German plate format (`ORT-KK 1234`, optional `E`/`H` suffix) both in the browser (live validity indicator, Bootstrap feedback) and on the server (regex check in `utils.py`). Invalid plates are rejected before saving.
+- **Extended tire details** (optional feature flag in Settings) — each wheel set can store tyre manufacturer, tyre size, age/DOT, season (Sommer / Winter / Allwetter), rim type (Stahl / Alu), and a free-text exchange note. All columns are nullable; existing records are unaffected.
+- **Seasonal overdue detection** — when seasonal tracking is enabled, wheel sets stored past their seasonal exchange window are highlighted with a pulsing red row and a ⚠ warning icon. Rules: Sommer tyres are overdue Jan–Apr; Winter tyres are overdue Jul–Sep; swap windows May–Jun and Oct–Dec are not flagged.
+- Season badges with icons on the wheel set list (☀ Sommer, ❄ Winter, 🌦 Allwetter); the exchange note is shown as a tooltip on the badge.
+- Settings toggles for **Erweiterte Reifendaten** and **Saisonale Radverwaltung** (seasonal tracking is only available when extended tire details is enabled). Both flags are stored in the database and backwards-compatible via auto-migration.
+- **English language support** — the UI language can now be switched between German and English in Settings. Language choice is persisted per-installation in the database.
+- Lightweight dict-based i18n module (`tsm/i18n.py`) with ~80 translation keys; no `.po`/`.mo` compilation required — fully compatible with PyInstaller EXE builds.
+- Language selector dropdown in the Settings → Appearance card (🇩🇪 Deutsch / 🇬🇧 English).
+
+## [1.5.0] – 2026-03-26
+### Added
+- **German licence-plate validation** — wheelset form enforces standard German plate format (`ORT-KK 1234`, optional `E`/`H` suffix) in the browser (live validity indicator, Bootstrap feedback) and on the server (`utils.py` regex). Invalid plates are rejected before saving.
 - Licence plate input auto-uppercases while typing; no silent reformatting of the entered value.
 - Delete-confirmation input also auto-uppercases to prevent case mismatches.
-- **CI/CD – all-branch test & build**: `test` and `build` jobs now run on every push and pull-request (all branches). `bump` and `release` are restricted to `master`/`develop` only.
-- **Update Management UI** – Check for updates from the web interface, see release notes, and trigger immediate updates from Settings.
-- Auto-update toggle in Settings (automatic update on service restart at 03:00).
+- **Update Management UI** – check for updates from Settings, see release notes, trigger immediate updates.
+- Auto-update toggle in Settings (runs automatically on service restart at 03:00).
 - Update-available banner on every page with release notes preview.
 - AJAX-based update check with 10-minute server-side cache.
+### Changed
+- **CI/CD pipeline restructured**: order is now `test → build → bump → release`. Version is only bumped after all tests and the full EXE build (including smoke test) pass.
+- Version bump and release restricted to `master`/`develop`; `test` and `build` run on every branch and pull-request.
+- Version bump only triggered when app source files change (`tsm/`, `templates/`, `static/`, `config.py`, `requirements.txt`). CI/tool/doc-only changes no longer produce a new version.
 ### Fixed
 - `subprocess.DETACHED_PROCESS` / `CREATE_NO_WINDOW` are Windows-only constants; guarded with `getattr(subprocess, …, 0)` so tests pass on Linux CI.
-- Smoke test concurrency suite used invalid German plate format (`CC-00 0001`) which caused all writes to be rejected on a clean CI database; replaced with valid plates (`B-CC 0001`…`B-CC 0010`).
+- Smoke test concurrency suite used invalid German plate format (`CC-00 0001`) — replaced with valid plates (`B-CC 0001`…`B-CC 0010`).
+- `CHANGELOG_PATH` and `date` import restored in `tools/bump_version.py` after rebase loss.
 
 ## [1.4.2] – 2026-03-15
 
