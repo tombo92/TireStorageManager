@@ -319,6 +319,114 @@ class TestBackups:
         resp = client.get("/backups")
         assert resp.status_code == 200
 
+    def test_backups_shows_xlsx_badge(self, client, tmp_path, monkeypatch):
+        """Backups page must render the XLSX badge for an xlsx backup file."""
+        import tsm.routes as routes_mod
+        monkeypatch.setattr(routes_mod, "BACKUP_DIR", str(tmp_path))
+        (tmp_path / "wheel_storage_20260402-120000.xlsx").write_bytes(b"x" * 2048)
+        resp = client.get("/backups")
+        assert resp.status_code == 200
+        assert b"XLSX" in resp.data
+
+    def test_backups_shows_print_button(self, client):
+        """Backups page must have the Print Inventory button."""
+        resp = client.get("/backups")
+        html = resp.data.decode()
+        assert "inventory_print" in html or "/backups/inventory" in html
+
+    def test_download_xlsx_allowed(self, client, tmp_path, monkeypatch):
+        """Downloading an xlsx backup file must return 200."""
+        import tsm.routes as routes_mod
+        monkeypatch.setattr(routes_mod, "BACKUP_DIR", str(tmp_path))
+        fname = "wheel_storage_20260402-120000.xlsx"
+        (tmp_path / fname).write_bytes(b"x" * 1024)
+        resp = client.get(f"/backups/download/{fname}")
+        assert resp.status_code == 200
+
+    def test_download_xlsx_path_traversal_blocked(self, client):
+        """Path traversal in download must return 403."""
+        resp = client.get("/backups/download/../etc/passwd")
+        assert resp.status_code == 403
+
+    def test_download_unknown_extension_blocked(self, client, tmp_path,
+                                                 monkeypatch):
+        """Downloading a non-whitelisted extension must return 403."""
+        import tsm.routes as routes_mod
+        monkeypatch.setattr(routes_mod, "BACKUP_DIR", str(tmp_path))
+        fname = "wheel_storage_20260402-120000.exe"
+        (tmp_path / fname).write_bytes(b"x")
+        resp = client.get(f"/backups/download/{fname}")
+        assert resp.status_code == 403
+
+
+class TestInventoryPrint:
+    def test_get_empty(self, client):
+        """Inventory page renders without wheel sets."""
+        resp = client.get("/backups/inventory")
+        assert resp.status_code == 200
+
+    def test_contains_heading(self, client):
+        resp = client.get("/backups/inventory")
+        html = resp.data.decode()
+        assert "Bestandsübersicht" in html or "Bestands" in html
+
+    def test_shows_wheelset(self, client, seed_wheelset):
+        """Seeded wheel set must appear on the inventory page."""
+        resp = client.get("/backups/inventory")
+        html = resp.data.decode()
+        assert "Mustermann" in html
+        assert "C1ROM" in html
+        assert "AB-CD 1234" in html
+
+    def test_groups_by_container(self, client, db_session):
+        """Wheel sets in different containers appear under separate headings."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(
+            customer_name="Anna Müller", license_plate="B-AM 111",
+            car_type="BMW X3", storage_position="C1ROM",
+        ))
+        db_session.add(WheelSet(
+            customer_name="Karl Berg", license_plate="M-KB 222",
+            car_type="Audi A6", storage_position="C2ROM",
+        ))
+        db_session.commit()
+        resp = client.get("/backups/inventory")
+        html = resp.data.decode()
+        assert "Container 1" in html
+        assert "Container 2" in html
+
+    def test_groups_by_garage(self, client, db_session):
+        """Wheel sets in a garage shelf appear under the garage heading."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(
+            customer_name="Test Kunde", license_plate="HH-TK 999",
+            car_type="VW Passat", storage_position="GR3OL",
+        ))
+        db_session.commit()
+        resp = client.get("/backups/inventory")
+        html = resp.data.decode()
+        assert "Garage" in html
+        assert "3" in html
+
+    def test_check_column_present(self, client, seed_wheelset):
+        """Inventory page must have the manual-check column marker."""
+        resp = client.get("/backups/inventory")
+        html = resp.data.decode()
+        assert "✓" in html or "&#x2713;" in html
+
+    def test_total_count_shown(self, client, seed_wheelset):
+        """Total wheel set count must be rendered on the inventory page."""
+        resp = client.get("/backups/inventory")
+        html = resp.data.decode()
+        assert "1" in html  # one seeded wheelset
+
+    def test_empty_state_message(self, client):
+        """When no wheel sets exist, a meaningful empty-state is shown."""
+        resp = client.get("/backups/inventory")
+        html = resp.data.decode()
+        assert "keine" in html.lower() or "no" in html.lower() or \
+               "gespeichert" in html.lower()
+
 
 class TestFavicon:
     def test_favicon(self, client):
