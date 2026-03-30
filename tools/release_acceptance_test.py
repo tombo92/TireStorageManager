@@ -482,11 +482,11 @@ def phase1_app(app_exe: Path, port: int, data_dir: Path) -> None:
             con = sqlite3.connect(str(db_file))
             cur = con.execute(
                 "SELECT 1 FROM wheel_sets "
-                "WHERE license_plate = 'RAT-PERSIST' LIMIT 1",
+                "WHERE license_plate = 'RAT-P 1' LIMIT 1",
             )
             found = cur.fetchone() is not None
             con.close()
-            _check("RAT-PERSIST in DB via direct SQLite (WAL replay)",
+            _check("RAT-P 1 in DB via direct SQLite (WAL replay)",
                    found, "not found even via direct query")
         except sqlite3.Error as exc:
             _check("Direct SQLite query after failed checkpoint",
@@ -503,7 +503,7 @@ def phase1_app(app_exe: Path, port: int, data_dir: Path) -> None:
     _, body = _get(base, "/wheelsets")
     _check(
         "Wheelset data persists across restarts",
-        b"RAT-PERSIST" in body,
+        b"RAT-P 1" in body,
         "test record not found after restart",
     )
     _stop_app(proc2)
@@ -753,7 +753,7 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "RAT Customer",
-        "license_plate": "RAT-PERSIST",
+        "license_plate": "RAT-P 1",
         "car_type": "Sedan",
         "storage_position": "C1ROL",
         "note": "release acceptance",
@@ -764,7 +764,7 @@ def _phase1b_crud(base: str) -> None:
     _, _hp_body = _get(base, "/wheelsets")
     _check(
         "Happy-path wheelset appears in list",
-        b"RAT-PERSIST" in _hp_body,
+        b"RAT-P 1" in _hp_body,
         "POST succeeded but data not in /wheelsets",
     )
 
@@ -773,7 +773,7 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "RAT Customer",
-        "license_plate": "RAT-PERSIST",
+        "license_plate": "RAT-P 1",
         "car_type": "Sedan",
         "storage_position": "C1ROL",
         "note": "duplicate",
@@ -807,7 +807,7 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": long_str,
-        "license_plate": "RAT-LONG",
+        "license_plate": "RAT-L 2",
         "car_type": long_str,
         "storage_position": "C2ROL",
         "note": long_str,
@@ -823,7 +823,7 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "Müller & Söhne <script>",
-        "license_plate": "RAT-UNI1",
+        "license_plate": "RAT-U 3",
         "car_type": "Ümläut Coupé",
         "storage_position": "C3ROL",
         "note": "unicode test",
@@ -846,7 +846,7 @@ def _phase1b_crud(base: str) -> None:
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "' OR '1'='1",
-        "license_plate": "RAT-SQLI",
+        "license_plate": "RAT-S 4",
         "car_type": "'; DROP TABLE wheel_sets; --",
         "storage_position": "C4ROL",
         "note": "",
@@ -966,14 +966,14 @@ def _phase1e_security(base: str) -> None:
     _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "CSRF replay 1",
-        "license_plate": "RAT-CSRF1",
+        "license_plate": "RAT-C 5",
         "car_type": "X",
         "storage_position": "C1LOR",
     })
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,  # replayed token
         "customer_name": "CSRF replay 2",
-        "license_plate": "RAT-CSRF2",
+        "license_plate": "RAT-C 6",
         "car_type": "X",
         "storage_position": "C1LOM",
     })
@@ -1003,7 +1003,7 @@ def _phase1f_concurrency(base: str) -> None:
                 _post(base, "/wheelsets/new", {
                     "_csrf_token": csrf,
                     "customer_name": f"Concurrent {n}-{i}",
-                    "license_plate": f"CON-{n:02d}{i:02d}",
+                    "license_plate": f"C-AB {n * 10 + i + 1}",
                     "car_type": "Test",
                     "storage_position": f"GR{n + 1}O{'LMR'[i % 3]}",
                 })
@@ -1119,9 +1119,17 @@ def phase2_installer(
         "Service still responds after reinstall",
         _wait_http_up(base, timeout=60),
     )
+    # NSSM updates the SCM state slightly after the process starts;
+    # give it up to 10 s to transition to RUNNING.
+    _svc_running = False
+    for _ in range(10):
+        if _service_state() == "RUNNING":
+            _svc_running = True
+            break
+        time.sleep(1)
     _check(
         "Service state RUNNING after reinstall",
-        _service_state() == "RUNNING",
+        _svc_running,
     )
 
     # ── 2e Restore-DB edge cases ──────────────────────────────────────
@@ -1553,7 +1561,7 @@ def phase4_installer_upgrade(
     code, _ = _post(base, "/wheelsets/new", {
         "_csrf_token": csrf,
         "customer_name": "Upgrade Survival Test",
-        "license_plate": "UPG-SURVIVE",
+        "license_plate": "UPG-S 7",
         "car_type": "Compact",
         "storage_position": "C1ROL",
         "note": "must survive upgrade",
@@ -1565,7 +1573,7 @@ def phase4_installer_upgrade(
     _, _seed_body = _get(base, "/wheelsets")
     _check(
         "4b: survival wheelset appears in list",
-        b"UPG-SURVIVE" in _seed_body,
+        b"UPG-S 7" in _seed_body,
         "POST returned 200/302 but wheelset not in /wheelsets – "
         "likely a silent validation rejection",
     )
@@ -1583,7 +1591,7 @@ def phase4_installer_upgrade(
     _, _pre_body = _get(base, "/wheelsets")
     _check(
         "4c: survival wheelset visible before upgrade",
-        b"UPG-SURVIVE" in _pre_body,
+        b"UPG-S 7" in _pre_body,
         "not found – backup/checkpoint may not have flushed",
     )
 
@@ -1639,11 +1647,11 @@ def phase4_installer_upgrade(
             con = sqlite3.connect(str(_upgrade_db))
             cur = con.execute(
                 "SELECT 1 FROM wheel_sets "
-                "WHERE license_plate = 'UPG-SURVIVE' LIMIT 1",
+                "WHERE license_plate = 'UPG-S 7' LIMIT 1",
             )
             found = cur.fetchone() is not None
             con.close()
-            _check("4c: UPG-SURVIVE in DB via direct query (WAL replay)",
+            _check("4c: UPG-S 7 in DB via direct query (WAL replay)",
                    found, "not found even via direct query")
         except sqlite3.Error as exc:
             _check("4c: direct SQLite query failed", False, str(exc))
@@ -1673,9 +1681,9 @@ def phase4_installer_upgrade(
     # and render the full wheelset list.
     time.sleep(3)
     _, ws_body = _get(base, "/wheelsets")
-    http_found = b"UPG-SURVIVE" in ws_body
+    http_found = b"UPG-S 7" in ws_body
     if not http_found:
-        print("    4e: UPG-SURVIVE not in HTTP response, "
+        print("    4e: UPG-S 7 not in HTTP response, "
               "trying direct DB query …", flush=True)
         # Fallback: read the DB file directly (the HTTP layer may not
         # reflect the data immediately after a fresh service start if
@@ -1691,12 +1699,12 @@ def phase4_installer_upgrade(
                 ).fetchone()[0]
                 cur = con.execute(
                     "SELECT 1 FROM wheel_sets "
-                    "WHERE license_plate = 'UPG-SURVIVE' LIMIT 1",
+                    "WHERE license_plate = 'UPG-S 7' LIMIT 1",
                 )
                 db_found = cur.fetchone() is not None
                 con.close()
                 print(f"    4e: DB has {total} wheelset(s), "
-                      f"UPG-SURVIVE found={db_found}", flush=True)
+                      f"UPG-S 7 found={db_found}", flush=True)
             except (sqlite3.Error, OSError) as exc:
                 print(f"    4e: direct DB query error: {exc}", flush=True)
         else:

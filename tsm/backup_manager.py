@@ -70,6 +70,8 @@ class BackupManager(threading.Thread):
             self._stop_event.wait(30)
 
     def perform_backup(self):
+        """Perform a backup of the database and export a CSV snapshot. Old backups
+        """
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         bfile = os.path.join(self.backup_dir, f"wheel_storage_{ts}.db")
 
