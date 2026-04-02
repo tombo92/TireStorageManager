@@ -348,6 +348,9 @@ jobs:
   # build-installer – all branches
   # Runs when build-app passed AND smoke-app passed or was skipped
   # (skipped = no app changes, but installer changes present).
+  # Also runs on develop/master whenever a version bump succeeds,
+  # because the installer bundles TireStorageManager.exe and must be
+  # rebuilt for every release even if installer/ files are unchanged.
   # ────────────────────────────────────────────────────────────────
   build-installer:
     needs: [ changes, bump, build-app, smoke-app ]
@@ -357,7 +360,10 @@ jobs:
       (needs.smoke-app.result == 'success' || needs.smoke-app.result == 'skipped') &&
       (needs.bump.result == 'success' || needs.bump.result == 'skipped') &&
       github.actor != 'github-actions[bot]' &&
-      needs.changes.outputs.installer == 'true'
+      (
+        needs.changes.outputs.installer == 'true' ||
+        needs.bump.result == 'success'
+      )
     runs-on: windows-latest
     env:
       PYTHONIOENCODING: utf-8
