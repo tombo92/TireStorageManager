@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <title>Reifenlager &ndash; Bestandsübersicht</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            margin: 16px 24px;
+            color: #1a1a1a;
+        }
+        h1 {
+            font-size: 16pt;
+            text-align: center;
+            margin: 0 0 4px 0;
+        }
+        .subtitle {
+            text-align: center;
+            color: #555;
+            margin: 0 0 20px 0;
+            font-size: 10pt;
+        }
+        .no-print {
+            margin-bottom: 16px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .btn-print {
+            padding: 6px 18px;
+            font-size: 11pt;
+            cursor: pointer;
+            background: #2F75B6;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+        }
+        .btn-back {
+            font-size: 11pt;
+            color: #2F75B6;
+            text-decoration: none;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+        }
+        thead { display: table-header-group; }
+        th, td {
+            border: 1px solid #aaa;
+            padding: 4px 7px;
+            font-size: 10pt;
+        }
+        .section-header th {
+            font-size: 11pt;
+            font-weight: bold;
+            text-align: left;
+            padding-left: 10px;
+        }
+        .section-container th { background: #BDD7EE; color: #1a1a2e; }
+        .section-garage    th { background: #C6EFCE; color: #1a1a2e; }
+        .section-other     th { background: #FFFFCC; color: #1a1a2e; }
+        .col-header th {
+            background: #2F75B6;
+            color: #fff;
+            font-weight: bold;
+            text-align: center;
+        }
+        tr.alt { background: #f2f2f2; }
+        .num-col  { width: 35px;  text-align: center; }
+        .pos-col  { width: 95px;  font-family: monospace; }
+        .plate-col { width: 115px; }
+        .check-col { width: 32px; text-align: center; }
+        .empty-state {
+            text-align: center;
+            color: #888;
+            padding: 30px 0;
+            font-size: 13pt;
+        }
+        @media print {
+            .no-print { display: none !important; }
+            body { margin: 0; }
+            table { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <button class="btn-print" onclick="window.print()">&#x1F5A8; Drucken / Print</button>
+        <a class="btn-back" href="{{ url_for('backups') }}">&larr; Zurück / Back</a>
+    </div>
+
+    <h1>&#x1F527; Reifenlager &ndash; Bestandsübersicht</h1>
+    <p class="subtitle">Erstellt: {{ generated_at }} &nbsp;&bull;&nbsp; Gesamt: {{ total }} Radsätze</p>
+
+    {% if groups %}
+        {% for group in groups %}
+        <table>
+            <thead>
+                <tr class="section-header section-{{ group.type }}">
+                    <th colspan="7">{{ group.label }} &ndash; {{ group.rows | length }} Radsätze</th>
+                </tr>
+                <tr class="col-header">
+                    <th class="num-col">Nr.</th>
+                    <th class="pos-col">Position</th>
+                    <th>Kunde</th>
+                    <th class="plate-col">Kennzeichen</th>
+                    <th>Fahrzeug</th>
+                    <th>Notiz</th>
+                    <th class="check-col">&#x2713;</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in group.rows %}
+                <tr {% if loop.index is even %}class="alt"{% endif %}>
+                    <td class="num-col">{{ loop.index }}</td>
+                    <td class="pos-col">{{ row.storage_position }}</td>
+                    <td>{{ row.customer_name }}</td>
+                    <td class="plate-col">{{ row.license_plate }}</td>
+                    <td>{{ row.car_type }}</td>
+                    <td>{{ row.note or "" }}</td>
+                    <td class="check-col"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endfor %}
+    {% else %}
+        <p class="empty-state">Keine Radsätze im Lager gespeichert.</p>
+    {% endif %}
+</body>
+</html>
