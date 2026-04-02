@@ -32,8 +32,8 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "nav_backups":          {"de": "Backups",           "en": "Backups"},
     "nav_settings":         {"de": "Einstellungen",     "en": "Settings"},
     "nav_impressum":        {"de": "Impressum",         "en": "Imprint"},
-    "search_placeholder":   {"de": "Suche (Name, Kennzeichen, Fahrzeug)",
-                             "en": "Search (name, plate, vehicle)"},
+    "search_placeholder":   {"de": "Suche (Name, Kennzeichen, Fahrzeug, Notiz)",
+                             "en": "Search (name, plate, vehicle, note)"},
 
     # ── Flash messages ──────────────────────────────────────────
     "fill_required_fields": {
@@ -225,6 +225,21 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "wl_no_results":    {"de": "Keine Radsätze gefunden.", "en": "No wheel sets found."},
     "wl_edit":          {"de": "Bearbeiten",            "en": "Edit"},
     "wl_delete":        {"de": "Löschen",               "en": "Delete"},
+    "wl_sort":          {"de": "Sortieren",             "en": "Sort"},
+    "wl_sort_updated_desc":  {"de": "Zuletzt geändert ↓", "en": "Last updated ↓"},
+    "wl_sort_updated_asc":   {"de": "Zuletzt geändert ↑", "en": "Last updated ↑"},
+    "wl_sort_customer_asc":  {"de": "Kunde A–Z",          "en": "Customer A–Z"},
+    "wl_sort_customer_desc": {"de": "Kunde Z–A",          "en": "Customer Z–A"},
+    "wl_sort_plate_asc":     {"de": "Kennzeichen A–Z",    "en": "Plate A–Z"},
+    "wl_sort_plate_desc":    {"de": "Kennzeichen Z–A",    "en": "Plate Z–A"},
+    "wl_sort_position_asc":  {"de": "Position A–Z",       "en": "Position A–Z"},
+    "wl_sort_position_desc": {"de": "Position Z–A",       "en": "Position Z–A"},
+    "wl_filter":        {"de": "Filter",                "en": "Filter"},
+    "wl_filter_all_pos":     {"de": "Alle Positionen",    "en": "All positions"},
+    "wl_filter_container":   {"de": "Nur Container",      "en": "Containers only"},
+    "wl_filter_garage":      {"de": "Nur Garage",         "en": "Garage only"},
+    "wl_filter_all_season":  {"de": "Alle Saisons",       "en": "All seasons"},
+    "wl_reset_filter":       {"de": "Filter zurücksetzen","en": "Reset filters"},
     "wl_overdue_hint": {
         "de": "Reifenwechsel überfällig! "
               "Jan–Apr: Sommerreifen sollten bis Dezember abgeholt sein. "
