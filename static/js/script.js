@@ -504,3 +504,32 @@
     }
   });
 })();
+
+// =========================================================
+//  Wheelset list — live search (debounced)
+// =========================================================
+(function () {
+  'use strict';
+
+  var DEBOUNCE_MS = 400;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var input = document.getElementById('wl-search-input');
+    var form  = document.getElementById('wl-filter-form');
+    if (!input || !form) return;
+
+    var timer = null;
+
+    input.addEventListener('input', function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        form.submit();
+      }, DEBOUNCE_MS);
+    });
+
+    // Clear the pending timer if the user submits manually (Enter / button)
+    form.addEventListener('submit', function () {
+      clearTimeout(timer);
+    });
+  });
+})();
