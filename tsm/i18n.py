@@ -315,6 +315,8 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "bk_date":          {"de": "Datum",                 "en": "Date"},
     "bk_type":          {"de": "Typ",                   "en": "Type"},
     "bk_download":      {"de": "Download",              "en": "Download"},
+    "bk_print":         {"de": "Inventur drucken",      "en": "Print Inventory"},
+    "bk_files":         {"de": "Dateien",               "en": "Files"},
     "bk_no_backups":    {"de": "Keine Backups vorhanden.", "en": "No backups available."},
 
     # ── Settings positions page ──────────────────────────────────

@@ -11,6 +11,7 @@ All routes attached to app
 # ========================================================
 import json
 import os
+from collections import defaultdict
 from datetime import datetime
 from flask import (
     request, redirect, url_for, flash, render_template, abort,
@@ -28,7 +29,7 @@ from tsm.positions import (
     first_free_position, free_positions, get_disabled_positions,
     is_usable_position, position_sort_key, get_effective_positions,
     save_custom_positions, reset_custom_positions,
-    SORTED_POSITIONS,
+    SORTED_POSITIONS, RE_CONTAINER, RE_GARAGE,
 )
 from tsm.utils import (
     validate_csrf,
@@ -37,8 +38,8 @@ from tsm.utils import (
     overdue_season,
 )
 from tsm.i18n import gettext as _
-# for route use (CSV)
-from tsm.backup_manager import export_csv_snapshot
+# for route use (CSV + XLSX)
+from tsm.backup_manager import export_csv_snapshot, export_xlsx_snapshot
 from tsm.self_update import (
     get_update_info, invalidate_update_cache,
     check_for_update, _is_frozen,
@@ -516,29 +517,84 @@ def register_routes(app):
 
     @app.route("/backups")
     def backups():
-        files = []
+        seen: dict = {}
         try:
             entries = os.listdir(BACKUP_DIR)
         except FileNotFoundError:
             entries = []
         for f in entries:
-            if f.startswith("wheel_storage_") and (f.endswith(".db") or
-                                                   f.endswith(".csv")):
-                p = os.path.join(BACKUP_DIR, f)
-                try:
-                    size_kb = max(1, os.path.getsize(p)//1024)
-                    mtime = datetime.fromtimestamp(
-                        os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M:%S")
-                    ftype = "csv" if f.endswith(".csv") else "db"
-                    files.append(
-                        {"name": f,
-                         "size_kb": size_kb,
-                         "mtime": mtime,
-                         "type": ftype})
-                except Exception:
-                    pass
-        files.sort(key=lambda x: x["mtime"], reverse=True)
-        return render_template("backups.html", backups=files, active="backups")
+            if not f.startswith("wheel_storage_"):
+                continue
+            for ext in (".db", ".csv", ".xlsx"):
+                if f.endswith(ext):
+                    p = os.path.join(BACKUP_DIR, f)
+                    try:
+                        size_kb = max(1, os.path.getsize(p) // 1024)
+                        mtime = datetime.fromtimestamp(
+                            os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M")
+                        # timestamp = part between 3rd _ and extension
+                        # e.g. wheel_storage_20260402-120000.db → 20260402-120000
+                        ts = f[len("wheel_storage_"):f.rfind(".")]
+                        ftype = ext.lstrip(".")
+                        if ts not in seen:
+                            seen[ts] = {"ts": ts, "mtime": mtime, "files": []}
+                        seen[ts]["files"].append(
+                            {"name": f, "type": ftype, "size_kb": size_kb}
+                        )
+                    except Exception:
+                        pass
+        # Sort each group's files: db first, then csv, then xlsx
+        type_order = {"db": 0, "csv": 1, "xlsx": 2}
+        groups = sorted(seen.values(), key=lambda g: g["ts"], reverse=True)
+        for g in groups:
+            g["files"].sort(key=lambda x: type_order.get(x["type"], 9))
+        return render_template(
+            "backups.html", backup_groups=groups, active="backups"
+        )
+
+    @app.route("/backups/inventory")
+    def inventory_print():
+        db = SessionLocal()
+        try:
+            rows = db.query(WheelSet).all()
+            rows = sorted(rows,
+                          key=lambda r: position_sort_key(r.storage_position))
+        finally:
+            SessionLocal.remove()
+
+        groups_map: dict = defaultdict(list)
+        for r in rows:
+            m = RE_CONTAINER.match(r.storage_position)
+            if m:
+                key = ("container", int(m.group(1)),
+                       f"Container {m.group(1)}")
+            else:
+                m2 = RE_GARAGE.match(r.storage_position)
+                if m2:
+                    key = ("garage", int(m2.group(1)),
+                           f"Garage \u2013 Regal {m2.group(1)}")
+                else:
+                    key = ("other", 0, "Sonstige Positionen")
+            groups_map[key].append(r)
+
+        sorted_keys = sorted(
+            groups_map.keys(),
+            key=lambda x: (
+                0 if x[0] == "container" else 1 if x[0] == "garage" else 2,
+                x[1]
+            )
+        )
+        groups = [
+            {"label": k[2], "type": k[0], "rows": groups_map[k]}
+            for k in sorted_keys
+        ]
+        generated_at = datetime.now().strftime("%d.%m.%Y %H:%M")
+        return render_template(
+            "inventory_print.html",
+            groups=groups,
+            generated_at=generated_at,
+            total=len(rows),
+        )
 
     @app.route("/backups/download/<path:filename>")
     def download_backup(filename):
@@ -546,7 +602,7 @@ def register_routes(app):
         if ("/" in filename or "\\" in filename or ".." in filename):
             abort(403)
         if not (filename.startswith("wheel_storage_")
-                and (filename.endswith(".db") or filename.endswith(".csv"))):
+                and (filename.endswith(".db") or filename.endswith(".csv") or filename.endswith(".xlsx"))):
             abort(403)
         return send_from_directory(BACKUP_DIR, filename, as_attachment=True)
 
