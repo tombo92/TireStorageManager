@@ -44,6 +44,10 @@ def db_engine():
 
     @event.listens_for(eng, "connect")
     def _set_pragma(dbapi_conn, _rec):
+        dbapi_conn.create_function(
+            "lower", 1,
+            lambda s: s.lower() if isinstance(s, str) else s
+        )
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL;")
         cur.execute("PRAGMA foreign_keys=ON;")
