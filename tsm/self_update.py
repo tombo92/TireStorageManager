@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 EXE self-updater for deployed TireStorageManager installations.
 
@@ -24,6 +23,7 @@ import json
 import logging
 import os
 import re
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -56,6 +56,19 @@ SERVICE_NAME = os.environ.get("TSM_SERVICE_NAME", "TireStorageManager")
 
 # Timeout for HTTP requests (seconds)
 HTTP_TIMEOUT = 30
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """Return an SSL context that trusts the OS certificate store.
+
+    On Windows this includes enterprise/corporate root CAs deployed via
+    Group Policy, which fixes SSL_CERTIFICATE_VERIFY_FAILED errors in
+    managed networks without disabling certificate verification.
+    """
+    ctx = ssl.create_default_context()
+    if sys.platform == "win32":
+        ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    return ctx
 
 # Semver regex – handles pre-release suffixes like 1.2.0-beta
 _VER_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
@@ -125,7 +138,7 @@ def _fetch_latest_release() -> dict | None:
     """Fetch the latest GitHub Release metadata (with cache-busting)."""
     req = _make_request(_nocache_url(RELEASES_URL))
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -151,7 +164,7 @@ def _fetch_remote_version_via_raw() -> str | None:
     (same approach as tools/updater.py)."""
     req = _make_request(_nocache_url(RAW_CONFIG_URL))
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as resp:
             data = resp.read().decode("utf-8", errors="ignore")
         m = _VERSION_LINE_RE.search(data)
         if m:
@@ -167,7 +180,7 @@ def _download_asset(url: str, dest: Path) -> bool:
         _nocache_url(url),
         extra_headers={"Accept": "application/octet-stream"})
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=120, context=_ssl_context()) as resp:
             with open(dest, "wb") as f:
                 while True:
                     chunk = resp.read(64 * 1024)

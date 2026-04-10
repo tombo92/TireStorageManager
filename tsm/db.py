@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -10,7 +9,8 @@ DB
 # IMPORTS
 # ========================================================
 from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import scoped_session, sessionmaker
+
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------

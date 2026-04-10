@@ -58,7 +58,7 @@ Invalid plates are also rejected on the server before they can be saved.
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.12+
 - Windows (or Linux/macOS for development; service features are Windows-only)
 
 ### Setup
@@ -68,8 +68,8 @@ git clone https://github.com/tombo92/TireStorageManager.git
 cd TireStorageManager
 python -m venv .venv
 source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r requirements-test.txt
+pip install .
+pip install .[test]
 ```
 
 ### Run in development mode
@@ -315,9 +315,10 @@ Changes to the CI workflow file itself (`.github/workflows/**`) trigger all test
 | Job | Scope | Condition |
 | --- | ----- | --------- |
 | `changes` | all | always |
+| `lint` | all | always (gates `bump`) |
 | `test-app` | all | app files changed |
 | `test-installer` | all | `installer/` changed |
-| `bump` | develop + master | app changed, test-app passed or skipped |
+| `bump` | develop + master | lint passed, app changed, test-app passed or skipped |
 | `build-app` | all | test-app + bump passed or skipped |
 | `smoke-app` | all | app changed, build-app passed |
 | `build-installer` | all | installer changed, build-app passed, smoke-app passed or skipped |

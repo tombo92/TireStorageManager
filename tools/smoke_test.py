@@ -232,6 +232,18 @@ def test_settings(base: str):
     check("auto-update switch present",
           b'id="autoUpdateSwitch"' in body)
 
+    # Language selector present
+    check("language selector present",
+          b'id="languageSelect"' in body)
+    check("language selector has de option",
+          b'value="de"' in body)
+    check("language selector has en option",
+          b'value="en"' in body)
+
+    # Tire details section present
+    check("tire details switch present",
+          b'id="tireDetailsSwitch"' in body)
+
     csrf = _get_csrf(base)
     # Toggle dark mode on
     code, _ = _post(base, "/settings", {
@@ -268,8 +280,57 @@ def test_settings(base: str):
     check("POST /settings auto_update=off -> redirect",
           code in (200, 302), f"got {code}")
 
+    # Language toggle: switch to English, verify the page renders without errors
+    csrf = _get_csrf(base)
+    code, body = _post(base, "/settings", {
+        "_csrf_token":             csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies":           "10",
+        "language":                "en",
+    })
+    check("POST /settings language=en -> redirect",
+          code in (200, 302), f"got {code}")
+    _, body = _get(base, "/settings")
+    check("settings page renders after language switch to en",
+          b"</html>" in body and b"Traceback" not in body)
 
-def test_update_check_api(base: str):
+    # Switch back to German
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token":             csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies":           "10",
+        "language":                "de",
+    })
+    check("POST /settings language=de (restore) -> redirect",
+          code in (200, 302), f"got {code}")
+
+    # Tire details toggle: enable, then disable
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token":             csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies":           "10",
+        "enable_tire_details":     "1",
+    })
+    check("POST /settings enable_tire_details=1 -> redirect",
+          code in (200, 302), f"got {code}")
+    _, body = _get(base, "/settings")
+    check("seasonal tracking switch visible when tire details enabled",
+          b'id="seasonalTrackingSwitch"' in body)
+
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token":             csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies":           "10",
+        # enable_tire_details omitted = unchecked = False
+    })
+    check("POST /settings enable_tire_details=off -> redirect",
+          code in (200, 302), f"got {code}")
+
+
+def test_update_check_api(base: str, data_dir: str | None = None):
     print("\n-- Update check API --")
 
     code, body = _get(base, "/api/update-check")
@@ -298,12 +359,49 @@ def test_update_check_api(base: str):
     except (ValueError, KeyError) as e:
         check("response is valid JSON", False, str(e))
 
-    # Force-refresh via POST
+    # Force-refresh via POST (invalidates the server-side cache)
     csrf = _get_csrf(base)
     code, _ = _post(base, "/api/update-check",
                     {"_csrf_token": csrf})
     check("POST /api/update-check (force refresh) -> 200",
           code == 200, f"got {code}")
+
+    # SSL health checks — only when running as a frozen EXE with a known data_dir.
+    # The forced POST above clears the cache so the next GET triggers a real HTTPS
+    # call to GitHub.  remote_version being non-null proves that call succeeded;
+    # CERTIFICATE_VERIFY_FAILED in the log is a hard failure.
+    if data_dir is not None:
+        fresh_code, fresh_body = _get(base, "/api/update-check")
+        check("SSL health: GET /api/update-check (post-refresh) -> 200",
+              fresh_code == 200, f"got {fresh_code}")
+        try:
+            fresh_data = _json.loads(fresh_body)
+            if fresh_data.get("frozen"):
+                remote_version = fresh_data.get("remote_version")
+                check(
+                    "SSL health: remote_version non-null (GitHub HTTPS call succeeded)",
+                    remote_version is not None,
+                    "GitHub unreachable — possible SSL error; check tsm.log",
+                )
+        except (ValueError, KeyError) as exc:
+            check("SSL health: post-refresh response is valid JSON", False, str(exc))
+
+        log_file = os.path.join(data_dir, "logs", "tsm.log")
+        try:
+            with open(log_file, encoding="utf-8", errors="replace") as fh:
+                log_content = fh.read()
+            ssl_error = "CERTIFICATE_VERIFY_FAILED" in log_content
+            check(
+                "SSL health: no CERTIFICATE_VERIFY_FAILED in tsm.log",
+                not ssl_error,
+                "SSL cert error in log — corporate CA not in Windows trust store?" if ssl_error else "",
+            )
+            if ssl_error:
+                for line in log_content.splitlines():
+                    if "CERTIFICATE_VERIFY_FAILED" in line or "SSL" in line.upper():
+                        print(f"  [{INFO}] LOG: {line}")
+        except OSError:
+            print(f"  [{SKIP}] tsm.log not found at {log_file} — skipping log scan")
 
 
 def test_positions(base: str):
@@ -794,11 +892,13 @@ def main():
 
     print(f"Smoke-testing {base} ...")
 
+    effective_data_dir = args.data_dir or (os.path.dirname(args.exe_path) if args.exe_path else None)
+
     # ── Core suites (always run) ──────────────────────────────────────
     test_core_pages(base)
     test_db_wheelset_crud(base)
     test_settings(base)
-    test_update_check_api(base)
+    test_update_check_api(base, data_dir=effective_data_dir)
     test_positions(base)
     test_backups(base)
     test_impressum(base)

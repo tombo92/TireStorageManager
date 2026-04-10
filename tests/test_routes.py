@@ -574,7 +574,7 @@ class TestBackups:
         assert resp.status_code == 403
 
     def test_download_unknown_extension_blocked(self, client, tmp_path,
-                                                 monkeypatch):
+                                                monkeypatch):
         """Downloading a non-whitelisted extension must return 403."""
         import tsm.routes as routes_mod
         monkeypatch.setattr(routes_mod, "BACKUP_DIR", str(tmp_path))

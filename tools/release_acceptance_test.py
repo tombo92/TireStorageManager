@@ -198,6 +198,25 @@ def _get_csrf(base: str) -> str:
     return m.group(1).decode() if m else ""
 
 
+def _delete_by_plate(base: str, plate: str) -> None:
+    """Delete any wheelset with *plate* from the DB (idempotent pre-test cleanup).
+
+    Silently does nothing if the plate is not present.
+    This ensures repeated RAT runs do not fail due to leftover data.
+    """
+    _, list_body = _get(base, "/wheelsets")
+    for wid_b in re.findall(rb"/wheelsets/(\d+)/edit", list_body):
+        wid = wid_b.decode()
+        _, edit_body = _get(base, f"/wheelsets/{wid}/edit")
+        if plate.encode() in edit_body:
+            csrf = _get_csrf(base)
+            _post(base, f"/wheelsets/{wid}/delete", {
+                "_csrf_token": csrf,
+                "confirm_plate": plate,
+            })
+            return
+
+
 # ── Installer runner ──────────────────────────────────────────────────
 
 def _run_installer(
@@ -432,6 +451,10 @@ def phase1_app(app_exe: Path, port: int, data_dir: Path) -> None:
     # ── 1b Wheelset CRUD + validation edge cases ──────────────────────
     _section("Phase 1b – Wheelset CRUD & input validation")
     _phase1b_crud(base)
+
+    # ── 1b-ext Extended tire details CRUD ─────────────────────────────
+    _section("Phase 1b-ext – Extended tire details (when enabled)")
+    _phase1b_tire_details(base)
 
     # ── 1c Settings resilience ────────────────────────────────────────
     _section("Phase 1c – Settings read/write resilience")
@@ -671,6 +694,14 @@ def _phase1h_pages(base: str) -> None:
         "settings: auto-update toggle present",
         b"autoUpdate" in body or b"auto_update" in body,
     )
+    _check(
+        "settings: language selector present",
+        b'id="languageSelect"' in body,
+    )
+    _check(
+        "settings: tire details switch present",
+        b'id="tireDetailsSwitch"' in body,
+    )
 
     # ── /impressum ───────────────────────────────────────────────────
     body = _page(
@@ -747,6 +778,10 @@ def _phase1h_pages(base: str) -> None:
 
 
 def _phase1b_crud(base: str) -> None:
+    # Remove any leftover RAT wheelsets from previous runs so this phase is
+    # idempotent (duplicate position or plate would silently reject the POST).
+    _delete_by_plate(base, "RAT-P 1")
+
     csrf = _get_csrf(base)
 
     # Happy path
@@ -861,6 +896,99 @@ def _phase1b_crud(base: str) -> None:
     _check("wheel_sets table intact after SQLi attempt", code2 == 200)
 
 
+def _phase1b_tire_details(base: str) -> None:
+    """
+    Verify extended tire details feature:
+      1. Enable tire details via settings.
+      2. Create a wheelset with all tire detail fields populated.
+      3. Verify the wheelset appears in the list (no silent rejection).
+      4. Verify the edit form shows the pre-filled tire detail fields.
+      5. Disable tire details (cleanup) – existing fields must be ignored.
+    """
+    # Step 1: enable tire details
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token": csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies": "3",
+        "enable_tire_details": "1",
+    })
+    _check("Tire details: enable via settings", code in (200, 302), f"got {code}")
+
+    # Step 2: create a wheelset with tire detail fields (clean up first for idempotency)
+    _delete_by_plate(base, "RAT-T 8")
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/wheelsets/new", {
+        "_csrf_token": csrf,
+        "customer_name": "RAT Tire Details",
+        "license_plate": "RAT-T 8",
+        "car_type": "Golf Variant",
+        "storage_position": "C5ROL",
+        "note": "tire details test",
+        "tire_manufacturer": "Michelin",
+        "tire_size": "205/55 R16",
+        "tire_age": "2024",
+        "season": "winter",
+        "rim_type": "alu",
+        "exchange_note": "Umrüstung Oktober",
+    })
+    _check(
+        "Tire details: create wheelset with extended fields",
+        code in (200, 302),
+        f"got {code}",
+    )
+
+    # Step 3: wheelset must appear in the list
+    _, list_body = _get(base, "/wheelsets")
+    _check(
+        "Tire details: wheelset appears in list",
+        b"RAT-T 8" in list_body,
+        "POST succeeded but license plate not found in /wheelsets",
+    )
+
+    # Step 4: edit form contains tire detail fields (confirms fields persisted)
+    m = re.search(rb"/wheelsets/(\d+)/edit", list_body)
+    if m:
+        # Locate edit for RAT-T 8 specifically
+        all_ids = re.findall(rb"/wheelsets/(\d+)/edit", list_body)
+        tire_wid = None
+        for wid_b in all_ids:
+            _, edit_body = _get(base, f"/wheelsets/{wid_b.decode()}/edit")
+            if b"RAT-T 8" in edit_body:
+                tire_wid = wid_b.decode()
+                break
+        if tire_wid:
+            _, edit_body = _get(base, f"/wheelsets/{tire_wid}/edit")
+            _check(
+                "Tire details: tire_manufacturer field in edit form",
+                b'name="tire_manufacturer"' in edit_body,
+            )
+            _check(
+                "Tire details: season field in edit form",
+                b'name="season"' in edit_body,
+            )
+            _check(
+                "Tire details: rim_type field in edit form",
+                b'name="rim_type"' in edit_body,
+            )
+        else:
+            _check("Tire details: found edit form for RAT-T 8",
+                   False, "could not locate wheelset by plate", warn=True)
+    else:
+        _check("Tire details: edit form lookup",
+               False, "no edit links found in list", warn=True)
+
+    # Step 5: disable tire details (cleanup)
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token": csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies": "3",
+        # enable_tire_details omitted = off
+    })
+    _check("Tire details: disable via settings (cleanup)", code in (200, 302), f"got {code}")
+
+
 def _phase1c_settings(base: str) -> None:
     # Settings page loads
     code, body = _get(base, "/settings")
@@ -917,6 +1045,67 @@ def _phase1c_settings(base: str) -> None:
         code != 500,
         f"got {code}",
     )
+
+    # Language toggle: switch to English
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token": csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies": "3",
+        "language": "en",
+    })
+    _check("POST /settings language=en", code in (200, 302), f"got {code}")
+    _, en_body = _get(base, "/settings")
+    _check(
+        "settings page renders after language=en (no traceback)",
+        b"</html>" in en_body and b"Traceback" not in en_body,
+    )
+
+    # Restore German
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token": csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies": "3",
+        "language": "de",
+    })
+    _check("POST /settings language=de (restore)", code in (200, 302), f"got {code}")
+
+    # Enable tire details
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token": csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies": "3",
+        "enable_tire_details": "1",
+    })
+    _check("POST /settings enable_tire_details=1", code in (200, 302), f"got {code}")
+    _, td_body = _get(base, "/settings")
+    _check(
+        "seasonal tracking switch visible when tire details enabled",
+        b'id="seasonalTrackingSwitch"' in td_body,
+    )
+
+    # Enable seasonal tracking (requires tire details)
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token": csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies": "3",
+        "enable_tire_details": "1",
+        "enable_seasonal_tracking": "1",
+    })
+    _check("POST /settings enable_seasonal_tracking=1", code in (200, 302), f"got {code}")
+
+    # Disable tire details (also clears seasonal tracking implicitly)
+    csrf = _get_csrf(base)
+    code, _ = _post(base, "/settings", {
+        "_csrf_token": csrf,
+        "backup_interval_minutes": "60",
+        "backup_copies": "3",
+        # enable_tire_details omitted = off
+    })
+    _check("POST /settings enable_tire_details=off", code in (200, 302), f"got {code}")
 
 
 def _phase1d_backup(base: str) -> None:
@@ -1366,11 +1555,13 @@ def _phase2g_task_repeated(base: str, *, repeats: int = 3) -> None:
                 f"got {code}",
             )
         else:
-            _check(
-                f"Cycle {i}: task-restart succeeded",
-                False,
-                "skipped remaining cycles",
-                warn=True,
+            # The failure was already recorded inside _phase2g_task_once;
+            # task-scheduler timing is unreliable in CI, so skip remaining
+            # cycles without adding a redundant warning entry.
+            print(
+                f"  NOTE  Cycle {i}: task-restart not confirmed"
+                " – skipping remaining cycles",
+                flush=True,
             )
             break
 
@@ -1415,6 +1606,33 @@ def _phase3_update_once(base: str, app_exe: Path, port: int,
             isinstance(data.get("current_version"), str)
             and len(data.get("current_version", "")) > 0,
         )
+
+        # 3a-ssl – SSL health: the EXE always calls GitHub over HTTPS when the
+        # update-check endpoint is hit.  remote_version being non-null proves
+        # the HTTPS call succeeded; CERTIFICATE_VERIFY_FAILED in the log is a
+        # hard failure (corporate CA not loaded into the context).
+        remote_version = data.get("remote_version")
+        _check(
+            f"{prefix}: SSL health: remote_version non-null (GitHub HTTPS call succeeded)",
+            remote_version is not None,
+            "GitHub unreachable — possible SSL error; check tsm.log",
+        )
+        log_file = data_dir / "logs" / "tsm.log"
+        try:
+            log_content = log_file.read_text(encoding="utf-8", errors="replace")
+            ssl_error = "CERTIFICATE_VERIFY_FAILED" in log_content
+            _check(
+                f"{prefix}: SSL health: no CERTIFICATE_VERIFY_FAILED in tsm.log",
+                not ssl_error,
+                "SSL cert error in log — corporate CA not in Windows trust store?" if ssl_error else "",
+            )
+            if ssl_error:
+                for line in log_content.splitlines():
+                    if "CERTIFICATE_VERIFY_FAILED" in line or "SSL" in line.upper():
+                        print(f"  [LOG] {line}", flush=True)
+        except OSError:
+            print(f"  [INFO] tsm.log not found at {log_file} — skipping log scan", flush=True)
+
     except (ValueError, KeyError) as exc:
         _check(f"{prefix}: update-check is valid JSON", False, str(exc))
 
@@ -1734,6 +1952,86 @@ def phase4_installer_upgrade(
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Phase 5 – Installer update-check (headless)
+# ══════════════════════════════════════════════════════════════════════
+
+def phase5_installer_update_check(inst_exe: Path) -> None:
+    """
+    5a  Run  inst_exe --headless --action check-update.
+    5b  Exit code must be 0.
+    5c  stdout must be valid JSON with all required keys.
+    5d  current_version must be a non-empty string.
+    5e  update_available must be a bool.
+    5f  No SSL CERTIFICATE_VERIFY_FAILED in stderr (corporate-CA fix).
+    """
+    _section("Phase 5 – Installer update check (headless)")
+
+    result = subprocess.run(
+        [str(inst_exe), "--headless", "--action", "check-update"],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+
+    _check("5a: check-update exited 0", result.returncode == 0,
+           f"exit {result.returncode}")
+
+    # 5b – parse JSON
+    info: dict = {}
+    try:
+        info = _json.loads(result.stdout)
+        _check("5b: stdout is valid JSON", True)
+    except (ValueError, TypeError) as exc:
+        _check("5b: stdout is valid JSON", False, str(exc))
+        return   # remaining checks need the dict
+
+    required_keys = {
+        "update_available", "current_version", "remote_version",
+        "release_notes", "release_url", "installer_url",
+    }
+    missing = required_keys - info.keys()
+    _check("5c: JSON has all required keys",
+           not missing, f"missing: {missing}")
+
+    _check(
+        "5d: current_version is non-empty",
+        isinstance(info.get("current_version"), str)
+        and len(info.get("current_version", "")) > 0,
+        str(info.get("current_version")),
+    )
+
+    _check(
+        "5e: update_available is bool",
+        isinstance(info.get("update_available"), bool),
+        str(type(info.get("update_available"))),
+    )
+
+    ssl_error = "CERTIFICATE_VERIFY_FAILED" in (
+        result.stdout + result.stderr
+    )
+    _check(
+        "5f: no SSL CERTIFICATE_VERIFY_FAILED in output",
+        not ssl_error,
+        "SSL cert error — corporate CA not in Windows trust store?" if ssl_error else "",
+    )
+
+    # Informational: log whether an update is available
+    if info.get("update_available"):
+        print(
+            f"  [INFO] Update available: "
+            f"{info.get('current_version')} → {info.get('remote_version')}",
+            flush=True,
+        )
+    else:
+        print(
+            f"  [INFO] No update: current={info.get('current_version')}, "
+            f"remote={info.get('remote_version')}",
+            flush=True,
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════════════════════
 
@@ -1776,6 +2074,8 @@ def main() -> int:
                         help="Skip Phase 3 (update flow)")
     parser.add_argument("--skip-phase4", action="store_true",
                         help="Skip Phase 4 (installer upgrade)")
+    parser.add_argument("--skip-phase5", action="store_true",
+                        help="Skip Phase 5 (installer update check)")
     args = parser.parse_args()
 
     app_exe = Path(args.app_exe).resolve()
@@ -1784,7 +2084,7 @@ def main() -> int:
     data_dir = Path(args.data_dir).resolve()
 
     print("═" * 60, flush=True)
-    print("  Release Acceptance Test", flush=True)
+    print("  Release Acceptance Test (RAT)", flush=True)
     print(f"  app-exe:      {app_exe}", flush=True)
     print(f"  inst-exe:     {inst_exe}", flush=True)
     print(f"  app-port:     {args.app_port}", flush=True)
@@ -1818,6 +2118,8 @@ def main() -> int:
                 inst_exe, install_dir, data_dir,
                 args.inst_port, app_exe,
             )
+        if not args.skip_phase5:
+            phase5_installer_update_check(inst_exe)
     except KeyboardInterrupt:
         print("\nInterrupted.", flush=True)
         return 1

@@ -1,8 +1,15 @@
 """Tests for tsm/self_update.py — version parsing and helpers."""
-from unittest.mock import patch
+import ssl
+import sys
+from unittest.mock import MagicMock, patch
+
 from tsm.self_update import (
-    _ver_tuple, _nocache_url, _is_frozen,
-    get_update_info, invalidate_update_cache,
+    _is_frozen,
+    _nocache_url,
+    _ssl_context,
+    _ver_tuple,
+    get_update_info,
+    invalidate_update_cache,
 )
 
 
@@ -44,6 +51,34 @@ class TestIsFrozen:
         assert _is_frozen() is False
 
 
+class TestSslContext:
+    def test_returns_ssl_context(self):
+        ctx = _ssl_context()
+        assert isinstance(ctx, ssl.SSLContext)
+
+    def test_certificate_verification_enabled(self):
+        """Verification must never be disabled — the fix only widens the trust
+        store, it does not skip validation."""
+        ctx = _ssl_context()
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+    def test_load_default_certs_called_on_windows(self):
+        ctx_mock = MagicMock(spec=ssl.SSLContext)
+        with patch("ssl.create_default_context", return_value=ctx_mock), \
+             patch("tsm.self_update.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            result = _ssl_context()
+        ctx_mock.load_default_certs.assert_called_once_with(ssl.Purpose.SERVER_AUTH)
+        assert result is ctx_mock
+
+    def test_load_default_certs_not_called_on_linux(self):
+        ctx_mock = MagicMock(spec=ssl.SSLContext)
+        with patch("ssl.create_default_context", return_value=ctx_mock), \
+             patch("tsm.self_update.sys") as mock_sys:
+            mock_sys.platform = "linux"
+            _ssl_context()
+        ctx_mock.load_default_certs.assert_not_called()
+
 class TestGetUpdateInfo:
     """Tests for the cached get_update_info() function."""
 
@@ -58,8 +93,8 @@ class TestGetUpdateInfo:
             info = get_update_info()
         assert isinstance(info, dict)
         for key in ("update_available", "current_version",
-                     "remote_version", "release_notes",
-                     "release_url", "frozen"):
+                    "remote_version", "release_notes",
+                    "release_url", "frozen"):
             assert key in info
 
     def test_no_release_means_no_update(self):
