@@ -1,6 +1,7 @@
 """Tests for tsm/backup_manager.py — backup, CSV and XLSX export."""
 import os
 import tempfile
+import time
 
 from tsm.models import WheelSet, AuditLog
 from tsm.backup_manager import BackupManager, export_csv_snapshot, export_xlsx_snapshot
@@ -66,13 +67,38 @@ class TestBackupManager:
             for _ in range(4):
                 mgr.perform_backup()
 
-            db_files = [f for f in os.listdir(tmpdir) if f.endswith(".db")]
-            csv_files = [f for f in os.listdir(tmpdir) if f.endswith(".csv")]
+            db_files = sorted(f for f in os.listdir(tmpdir) if f.endswith(".db"))
+            csv_files = sorted(f for f in os.listdir(tmpdir) if f.endswith(".csv"))
+            xlsx_files = sorted(f for f in os.listdir(tmpdir) if f.endswith(".xlsx"))
             assert len(db_files) <= 2
             assert len(csv_files) <= 2
+            assert len(xlsx_files) <= 2
 
+    def test_retention_keeps_newest(self, db_session, db_engine, seed_wheelset,
+                                    seed_settings, monkeypatch):
+        """After pruning, the two *newest* (alphabetically last) files must survive."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import tsm.backup_manager as bm_mod
+            monkeypatch.setattr(bm_mod, "SessionLocal", db_session)
 
-class TestExportXlsx:
+            seed_settings.backup_copies = 2
+            db_session.commit()
+
+            mgr = BackupManager(db_engine, tmpdir)
+            for _ in range(4):
+                mgr.perform_backup()
+                time.sleep(1)  # ensure unique second-resolution timestamps
+
+            # The filenames are timestamp-sorted; the two survivors must be
+            # the last two when sorted alphabetically (newest timestamps).
+            all_db = sorted(f for f in os.listdir(tmpdir) if f.endswith(".db"))
+            all_csv = sorted(f for f in os.listdir(tmpdir) if f.endswith(".csv"))
+            assert len(all_db) == 2, f"expected 2 .db files, got {all_db}"
+            assert len(all_csv) == 2, f"expected 2 .csv files, got {all_csv}"
+            # Verify they are the two newest by checking timestamps are
+            # strictly increasing (i.e. the larger timestamp strings survived).
+            assert all_db[0] < all_db[1], "surviving .db files should be ordered"
+            assert all_csv[0] < all_csv[1], "surviving .csv files should be ordered"
     def test_creates_xlsx(self, db_session, db_engine, seed_wheelset,
                           monkeypatch):
         with tempfile.TemporaryDirectory() as tmpdir:

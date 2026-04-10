@@ -108,12 +108,34 @@ def _get_csrf(base: str) -> str:
 _failures: list[str] = []
 
 
-def check(name: str, passed: bool, detail: str = "") -> bool:
+def _dump_diag(data: bytes | str, *, max_chars: int = 1000) -> None:
+    """Print a truncated snippet of *data* to help diagnose a failure."""
+    if isinstance(data, bytes):
+        text = data.decode("utf-8", errors="replace")
+    else:
+        text = str(data)
+    text = text.strip()
+    if not text:
+        print("  │ (empty response body)", flush=True)
+        return
+    if len(text) > max_chars:
+        text = text[:max_chars] + f"\n  … [{len(text) - max_chars} more chars truncated]"
+    print("  ┌─ response body ─────────────────────────────────", flush=True)
+    for line in text.splitlines()[:30]:
+        print(f"  │ {line}", flush=True)
+    print("  └─────────────────────────────────────────────", flush=True)
+
+
+def check(name: str, passed: bool, detail: str = "",
+          diag: bytes | str | None = None) -> bool:
     status = PASS if passed else FAIL
     suffix = f"  ({detail})" if detail else ""
     print(f"  [{status}] {name}{suffix}")
     if not passed:
         _failures.append(name)
+        if diag is not None:
+            _dump_diag(diag)
+    return passed
     return passed
 
 
@@ -124,13 +146,15 @@ def check(name: str, passed: bool, detail: str = "") -> bool:
 def test_core_pages(base: str):
     print("\n-- Core pages --")
     pages = [
-        ("/",              "index"),
-        ("/wheelsets",     "wheelset list"),
-        ("/positions",     "positions"),
-        ("/backups",       "backups"),
-        ("/settings",      "settings"),
-        ("/impressum",     "impressum"),
-        ("/favicon.ico",   "favicon"),
+        ("/",                   "index"),
+        ("/wheelsets",          "wheelset list"),
+        ("/positions",          "positions"),
+        ("/backups",            "backups"),
+        ("/backups/inventory",  "inventory print"),
+        ("/settings",           "settings"),
+        ("/settings/positions", "settings positions"),
+        ("/impressum",          "impressum"),
+        ("/favicon.ico",        "favicon"),
     ]
     for path, label in pages:
         code, _ = _get(base, path)
@@ -158,7 +182,8 @@ def test_db_wheelset_crud(base: str):
     code, body = _get(base, "/wheelsets")
     check("wheelset visible in list",
           b"SM-OK 0001" in body or b"Smoke Test Kunde" in body,
-          "name/plate not found in response")
+          "name/plate not found in response",
+          diag=body)
 
     # Search
     code, body = _get(base, "/wheelsets?q=Smoke+Test")
