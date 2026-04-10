@@ -1,6 +1,5 @@
 """Tests for tsm/self_update.py — version parsing and helpers."""
 import ssl
-import sys
 from unittest.mock import MagicMock, patch
 
 from tsm.self_update import (
@@ -78,6 +77,7 @@ class TestSslContext:
             mock_sys.platform = "linux"
             _ssl_context()
         ctx_mock.load_default_certs.assert_not_called()
+
 
 class TestGetUpdateInfo:
     """Tests for the cached get_update_info() function."""

@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code quality: unused imports, variable shadowing, unreachable code** — removed across `tsm/`, `installer/`, and test files as part of the ruff migration.
 - **Multi-line f-string in `backup_manager.py`** — expression was only valid from Python 3.12; rewritten to be compatible.
 
+## [1.6.2] – 2026-04-10
 
 ## [1.6.1] – 2026-04-02
 

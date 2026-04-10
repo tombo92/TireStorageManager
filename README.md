@@ -169,6 +169,9 @@ CI signing is automatic when the `CODE_SIGN_PFX_BASE64` and `CODE_SIGN_PASSWORD`
 pytest tests/ -v --tb=short
 ```
 
+Release Acceptance Tests are started via `tools/release_acceptance_test.py`.
+Implementation is split into focused modules under `tools/rat/` (`helpers.py`, `phase1.py`, `phase2.py`, `phase345.py`).
+
 ---
 
 ## Manual Testing (Smoke Test)
@@ -310,6 +313,11 @@ flowchart TD
 
 Changes to the CI workflow file itself (`.github/workflows/**`) trigger all test and build jobs automatically. The **Publish** group (bump, commit-bump, release) is skipped because those jobs require app source files to have changed.
 
+### Coverage in CI
+
+- `test-app` runs with `pytest-cov` and uploads `coverage.xml` as artifact `coverage-report-<run_id>`.
+- `test-installer` runs with `pytest-cov` and uploads `coverage-installer.xml` as artifact `coverage-installer-report-<run_id>`.
+
 ### Job reference
 
 | Job | Scope | Condition |
@@ -321,7 +329,7 @@ Changes to the CI workflow file itself (`.github/workflows/**`) trigger all test
 | `bump` | develop + master | lint passed, app changed, test-app passed or skipped |
 | `build-app` | all | test-app + bump passed or skipped |
 | `smoke-app` | all | app changed, build-app passed |
-| `build-installer` | all | installer changed, build-app passed, smoke-app passed or skipped |
+| `build-installer` | all | build-app passed, smoke-app passed or skipped, and (`installer/` changed OR `bump` succeeded) |
 | `smoke-installer` | all | installer changed, build-installer passed |
 | `release-test` | master + manual | smoke-app + smoke-installer passed or skipped, build-app passed |
 | `commit-bump` | develop + master | all previous passed or skipped; on master: release-test must pass |

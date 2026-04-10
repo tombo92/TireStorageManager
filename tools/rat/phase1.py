@@ -6,29 +6,28 @@ concurrency, full page rendering, graceful shutdown and cold restart.
 """
 from __future__ import annotations
 
+import json as _json
 import re
 import sqlite3
-import subprocess
 import threading
 import time
+import urllib.error
 from pathlib import Path
-from typing import Optional
 
 from .helpers import (
     _check,
     _delete_by_plate,
-    _dump_diag,
     _get,
     _get_csrf,
     _poll_list,
     _post,
-    _run_installer,
     _section,
     _start_app,
     _stop_app,
-    _wal_checkpoint,
     _wait_http_up,
+    _wal_checkpoint,
 )
+
 
 def phase1_app(app_exe: Path, port: int, data_dir: Path) -> None:
     base = f"http://127.0.0.1:{port}"
@@ -902,4 +901,3 @@ def _phase1f_concurrency(base: str) -> None:
 # ══════════════════════════════════════════════════════════════════════
 # Phase 2 – Installer end-to-end
 # ══════════════════════════════════════════════════════════════════════
-

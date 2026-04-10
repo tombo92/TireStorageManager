@@ -13,12 +13,9 @@ Contains:
 """
 from __future__ import annotations
 
-import argparse
 import http.cookiejar
 import io
-import json as _json
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -27,9 +24,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # ── UTF-8 stdout (CI runners may default to cp1252) ───────────────────
 if hasattr(sys.stdout, "reconfigure"):
@@ -222,7 +218,7 @@ def _run_installer(
     *,
     keep_data: bool = False,
     shortcut: bool = False,
-    source_db: Optional[Path] = None,
+    source_db: Path | None = None,
     timeout: int = 180,
 ) -> tuple[int, str]:
     cmd = [
@@ -440,4 +436,3 @@ def _wal_checkpoint(db_path: Path) -> bool:
 # ══════════════════════════════════════════════════════════════════════
 # Phase 1 – App EXE standalone
 # ══════════════════════════════════════════════════════════════════════
-
