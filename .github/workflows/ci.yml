@@ -108,10 +108,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[test]
 
-      - name: Run tests
+      - name: Run tests (with coverage)
         run: >
           python -m pytest tests/ -v --tb=long
           --junitxml=test-results.xml
+          --cov=tsm --cov=installer
+          --cov-report=term-missing
+          --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: coverage.xml
 
       - name: Upload test results
         if: always()
@@ -142,10 +152,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[test]
 
-      - name: Run installer unit tests
+      - name: Run installer unit tests (with coverage)
         run: >
           python -m pytest tests/test_installer_smoke.py -v --tb=long
           --junitxml=test-installer-results.xml
+          --cov=installer
+          --cov-report=term-missing
+          --cov-report=xml:coverage-installer.xml
+
+      - name: Upload installer coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-installer-report-${{ github.run_id }}
+          path: coverage-installer.xml
 
       - name: Upload installer test results
         if: always()

@@ -339,8 +339,8 @@ TireStorageManager/
 ├── tsm/                    # Application package
 │   ├── app.py              # Flask app factory
 │   ├── models.py           # SQLAlchemy models (WheelSet, Settings, AuditLog, …)
-│   ├── routes.py           # URL routes
-│   ├── db.py               # Database engine, session & auto-migration
+│   ├── routes.py           # URL route handlers (module-level, registered via add_url_rule)
+│   ├── db.py               # Database engine, session, auto-migration & DB helpers
 │   ├── backup_manager.py   # Automatic backup logic
 │   ├── positions.py        # Storage position helpers & custom position support
 │   ├── utils.py            # CSRF, resource path helpers
@@ -349,6 +349,13 @@ TireStorageManager/
 ├── static/                 # CSS and JavaScript
 ├── tests/                  # pytest test suite
 ├── tools/                  # Developer utilities (version bump, code signing, …)
+│   ├── release_acceptance_test.py   # Entry point (imports from tools/rat/)
+│   ├── rat/                         # Release Acceptance Test modules
+│   │   ├── helpers.py               # HTTP/OS/SQLite infrastructure, test reporter
+│   │   ├── phase1.py                # App EXE standalone checks (CRUD, settings, …)
+│   │   ├── phase2.py                # Installer end-to-end checks
+│   │   └── phase345.py              # Update flow, installer upgrade, update-check
+│   └── smoke_test.py                # Live smoke test (10 suites, no pytest required)
 ├── payload/                # Bundled assets for the installer (nssm.exe, seed DB)
 ├── installer/              # Installer package
 │   ├── installer_logic.py  # Pure-logic install/uninstall steps (no Tkinter)

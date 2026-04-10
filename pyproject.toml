@@ -66,3 +66,11 @@ ignore = [
 # tools/updater.py is intentionally NOT listed here: it is production
 # code (the auto-updater for deployed installations) and must be linted
 # like any other source file.
+
+[tool.coverage.run]
+source = ["tsm", "installer"]
+omit = ["*/tests/*", "*/tools/*", "run.py", "*/conftest.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
