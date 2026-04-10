@@ -13,27 +13,31 @@ import sqlite3
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
 
 from .helpers import (
+    APP_NAME,
+    SERVICE_NAME,
     _check,
-    _delete_by_plate,
     _get,
     _get_csrf,
     _poll_list,
     _post,
     _run_installer,
     _section,
+    _service_exists,
     _service_start_type,
     _service_state,
+    _start_app,
+    _stop_app,
     _wait_http_up,
-    SERVICE_NAME,
+    _wal_checkpoint,
 )
 from .phase1 import (
     _phase1b_crud,
     _phase1c_settings,
     _phase1e_security,
 )
+
 
 def _phase3_update_once(base: str, app_exe: Path, port: int,
                         data_dir: Path, cycle: int) -> None:
@@ -506,4 +510,3 @@ def phase5_installer_update_check(inst_exe: Path) -> None:
 # ══════════════════════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════════════════════
-

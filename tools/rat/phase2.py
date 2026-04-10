@@ -7,22 +7,23 @@ and ghost-task guard.
 """
 from __future__ import annotations
 
-import sqlite3
+import re
+import shutil
 import subprocess
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from .helpers import (
+    APP_NAME,
+    SERVICE_NAME,
+    TASK_NAME,
     _check,
     _firewall_rule_exists,
     _get,
-    _get_csrf,
     _is_admin,
     _make_db_missing_table,
     _make_valid_db,
-    _poll_list,
-    _post,
     _run_installer,
     _section,
     _service_exists,
@@ -31,10 +32,9 @@ from .helpers import (
     _task_exists,
     _wait_http_down,
     _wait_http_up,
-    APP_NAME,
-    SERVICE_NAME,
-    TASK_NAME,
+    _warnings,
 )
+
 
 def phase2_installer(
     inst_exe: Path,
@@ -393,4 +393,3 @@ def _phase2g_task_repeated(base: str, *, repeats: int = 3) -> None:
 # ══════════════════════════════════════════════════════════════════════
 # Phase 3 – Update flow (repeated)
 # ══════════════════════════════════════════════════════════════════════
-
