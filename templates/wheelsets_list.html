@@ -7,14 +7,73 @@
     </a>
 </div>
 
-<form class="row g-2 mb-3" method="get">
-    <div class="col-sm-10">
-        <input type="text" class="form-control" name="q"
-               placeholder="{{ _('search_placeholder') }}"
-               value="{{ request.args.get('q','') }}">
-    </div>
-    <div class="col-sm-2 d-grid">
-        <button class="btn btn-primary"><i class="bi bi-search"></i></button>
+{# ── Search + Sort + Filter form ── #}
+<form class="mb-3" method="get" id="wl-filter-form">
+    <div class="row g-2 align-items-end">
+
+        {# Search #}
+        <div class="col-12 col-md-5">
+            <input type="text" class="form-control" name="q" id="wl-search-input"
+                   placeholder="{{ _('search_placeholder') }}"
+                   value="{{ request.args.get('q','') }}"
+                   autocomplete="off">
+        </div>
+
+        {# Sort #}
+        <div class="col-6 col-md-2">
+            <select class="form-select" name="sort" onchange="this.form.submit()">
+                {% set sort_opts = [
+                    ('updated_desc',  _('wl_sort_updated_desc')),
+                    ('updated_asc',   _('wl_sort_updated_asc')),
+                    ('customer_asc',  _('wl_sort_customer_asc')),
+                    ('customer_desc', _('wl_sort_customer_desc')),
+                    ('plate_asc',     _('wl_sort_plate_asc')),
+                    ('plate_desc',    _('wl_sort_plate_desc')),
+                    ('position_asc',  _('wl_sort_position_asc')),
+                    ('position_desc', _('wl_sort_position_desc')),
+                ] %}
+                {% for val, label in sort_opts %}
+                <option value="{{ val }}" {{ 'selected' if sort == val else '' }}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        {# Filter: position type #}
+        <div class="col-6 col-md-2">
+            <select class="form-select" name="filter_pos" onchange="this.form.submit()">
+                <option value="" {{ 'selected' if not filter_pos }}>{{ _("wl_filter_all_pos") }}</option>
+                <option value="container" {{ 'selected' if filter_pos == 'container' }}>{{ _("wl_filter_container") }}</option>
+                <option value="garage"    {{ 'selected' if filter_pos == 'garage' }}>{{ _("wl_filter_garage") }}</option>
+            </select>
+        </div>
+
+        {# Filter: season (only shown when tire details enabled) #}
+        {% if settings.enable_tire_details %}
+        <div class="col-6 col-md-2">
+            <select class="form-select" name="filter_season" onchange="this.form.submit()">
+                <option value="" {{ 'selected' if not filter_season }}>{{ _("wl_filter_all_season") }}</option>
+                <option value="sommer"    {{ 'selected' if filter_season == 'sommer' }}>{{ _("wf_season_sommer") }}</option>
+                <option value="winter"    {{ 'selected' if filter_season == 'winter' }}>{{ _("wf_season_winter") }}</option>
+                <option value="allwetter" {{ 'selected' if filter_season == 'allwetter' }}>{{ _("wf_season_allwetter") }}</option>
+            </select>
+        </div>
+        {% endif %}
+
+        {# Search button #}
+        <div class="col-6 col-md-1 d-grid">
+            <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
+        </div>
+
+        {# Reset — only shown when any filter/sort is active #}
+        {% if request.args.get('q') or filter_pos or filter_season or sort != 'updated_desc' %}
+        <div class="col-12">
+            <a href="{{ url_for('list_wheelsets') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-x-circle me-1"></i>{{ _("wl_reset_filter") }}
+            </a>
+            <small class="text-muted ms-2">{{ items | length }} {{ _("wl_title") }}</small>
+        </div>
+        {% endif %}
+
     </div>
 </form>
 

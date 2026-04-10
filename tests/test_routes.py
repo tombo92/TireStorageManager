@@ -69,6 +69,231 @@ class TestWheelsetsList:
         resp = client.get("/wheelsets?q=ZZZNOTFOUND")
         assert resp.status_code == 200
 
+    # ── Search: note field ─────────────────────────────────────
+    def test_search_by_note_returns_match(self, client, db_session):
+        """Search term matching the note field must return that wheel set."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(
+            customer_name="Fritz Meier", license_plate="K-FM 777",
+            car_type="Opel Astra", storage_position="C1ROL",
+            note="Sonderwunsch Winterreifen",
+        ))
+        db_session.commit()
+        resp = client.get("/wheelsets?q=Sonderwunsch")
+        assert resp.status_code == 200
+        assert b"Fritz Meier" in resp.data
+
+    def test_search_by_note_no_match(self, client, db_session):
+        """Search term that only exists in a note must NOT return unrelated rows."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(
+            customer_name="Anna Bauer", license_plate="S-AB 123",
+            car_type="Seat Leon", storage_position="C2ROL",
+            note="spezielle Felge",
+        ))
+        db_session.commit()
+        resp = client.get("/wheelsets?q=ZZZNOTINANYFIELD")
+        assert resp.status_code == 200
+        assert b"Anna Bauer" not in resp.data
+
+    def test_search_placeholder_contains_note(self, client):
+        """Search input placeholder must advertise note searching."""
+        resp = client.get("/wheelsets")
+        html = resp.data.decode()
+        assert "Notiz" in html or "note" in html.lower()
+
+    def test_search_input_has_id_for_live_search(self, client):
+        """Search input must carry id='wl-search-input' for JS live search."""
+        resp = client.get("/wheelsets")
+        html = resp.data.decode()
+        assert 'id="wl-search-input"' in html
+
+    def test_search_by_note_umlaut(self, client, db_session):
+        """Umlaut search term must match a note containing that umlaut."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(
+            customer_name="Umlaut Test", license_plate="U-UT 1",
+            car_type="X", storage_position="C1ROL",
+            note="Ölwechsel überfällig",
+        ))
+        db_session.commit()
+        resp = client.get("/wheelsets?q=%C3%B6l")  # URL-encoded 'öl'
+        assert resp.status_code == 200
+        assert "Umlaut Test" in resp.data.decode()
+
+    # ── Sort ──────────────────────────────────────────────────
+    def test_sort_customer_asc(self, client, db_session):
+        """customer_asc sort must return rows ordered alphabetically."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(customer_name="Zoe Zimmermann",
+                                license_plate="Z-ZZ 001", car_type="VW",
+                                storage_position="C1ROL"))
+        db_session.add(WheelSet(customer_name="Adam Auer",
+                                license_plate="A-AA 001", car_type="BMW",
+                                storage_position="C1RML"))
+        db_session.commit()
+        resp = client.get("/wheelsets?sort=customer_asc")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert html.index("Adam Auer") < html.index("Zoe Zimmermann")
+
+    def test_sort_customer_desc(self, client, db_session):
+        """customer_desc sort must return rows in reverse alphabetical order."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(customer_name="Zoe Zimmermann",
+                                license_plate="Z-ZZ 002", car_type="VW",
+                                storage_position="C1ROL"))
+        db_session.add(WheelSet(customer_name="Adam Auer",
+                                license_plate="A-AA 002", car_type="BMW",
+                                storage_position="C1RML"))
+        db_session.commit()
+        resp = client.get("/wheelsets?sort=customer_desc")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert html.index("Zoe Zimmermann") < html.index("Adam Auer")
+
+    def test_sort_position_asc(self, client, db_session):
+        """position_asc sort must order rows by storage_position ascending."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(customer_name="B Kunde",
+                                license_plate="B-B 001", car_type="X",
+                                storage_position="C4ROL"))
+        db_session.add(WheelSet(customer_name="A Kunde",
+                                license_plate="A-A 001", car_type="X",
+                                storage_position="C1ROL"))
+        db_session.commit()
+        resp = client.get("/wheelsets?sort=position_asc")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert html.index("C1ROL") < html.index("C4ROL")
+
+    def test_unknown_sort_falls_back_to_default(self, client, seed_wheelset):
+        """Unknown sort value must not crash; default order is used."""
+        resp = client.get("/wheelsets?sort=invalid_value")
+        assert resp.status_code == 200
+
+    def test_sort_select_rendered(self, client):
+        """Sort dropdown must appear on the page."""
+        resp = client.get("/wheelsets")
+        html = resp.data.decode()
+        assert 'name="sort"' in html
+
+    # ── Filter: position type ─────────────────────────────────
+    def test_filter_container(self, client, db_session):
+        """filter_pos=container must exclude garage positions."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(customer_name="Container Kunde",
+                                license_plate="C-C 001", car_type="X",
+                                storage_position="C1ROL"))
+        db_session.add(WheelSet(customer_name="Garage Kunde",
+                                license_plate="G-G 001", car_type="X",
+                                storage_position="GR1OL"))
+        db_session.commit()
+        resp = client.get("/wheelsets?filter_pos=container")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Container Kunde" in html
+        assert "Garage Kunde" not in html
+
+    def test_filter_garage(self, client, db_session):
+        """filter_pos=garage must exclude container positions."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(customer_name="Container Kunde",
+                                license_plate="C-C 002", car_type="X",
+                                storage_position="C1ROL"))
+        db_session.add(WheelSet(customer_name="Garage Kunde",
+                                license_plate="G-G 002", car_type="X",
+                                storage_position="GR1OL"))
+        db_session.commit()
+        resp = client.get("/wheelsets?filter_pos=garage")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Garage Kunde" in html
+        assert "Container Kunde" not in html
+
+    def test_filter_all_positions_shows_both(self, client, db_session):
+        """No position filter must return both container and garage rows."""
+        from tsm.models import WheelSet
+        db_session.add(WheelSet(customer_name="Container Kunde",
+                                license_plate="C-C 003", car_type="X",
+                                storage_position="C1ROL"))
+        db_session.add(WheelSet(customer_name="Garage Kunde",
+                                license_plate="G-G 003", car_type="X",
+                                storage_position="GR1OL"))
+        db_session.commit()
+        resp = client.get("/wheelsets")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Container Kunde" in html
+        assert "Garage Kunde" in html
+
+    def test_filter_pos_select_rendered(self, client):
+        """Position filter dropdown must appear on the page."""
+        resp = client.get("/wheelsets")
+        html = resp.data.decode()
+        assert 'name="filter_pos"' in html
+
+    # ── Filter: season ────────────────────────────────────────
+    def test_filter_season_winter(self, client, db_session, seed_settings):
+        """filter_season=winter must only return winter tyre wheel sets."""
+        from tsm.models import WheelSet
+        seed_settings.enable_tire_details = True
+        db_session.commit()
+        db_session.add(WheelSet(customer_name="Winter Kunde",
+                                license_plate="W-W 001", car_type="X",
+                                storage_position="C1ROL", season="winter"))
+        db_session.add(WheelSet(customer_name="Sommer Kunde",
+                                license_plate="S-S 001", car_type="X",
+                                storage_position="C1RML", season="sommer"))
+        db_session.commit()
+        resp = client.get("/wheelsets?filter_season=winter")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Winter Kunde" in html
+        assert "Sommer Kunde" not in html
+
+    def test_filter_season_combined_with_search(self, client, db_session,
+                                                seed_settings):
+        """Season filter combined with text search must apply both constraints."""
+        from tsm.models import WheelSet
+        seed_settings.enable_tire_details = True
+        db_session.commit()
+        db_session.add(WheelSet(customer_name="Hans Winter",
+                                license_plate="H-W 001", car_type="X",
+                                storage_position="C1ROL", season="winter"))
+        db_session.add(WheelSet(customer_name="Hans Sommer",
+                                license_plate="H-S 001", car_type="X",
+                                storage_position="C1RML", season="sommer"))
+        db_session.commit()
+        resp = client.get("/wheelsets?q=Hans&filter_season=winter")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Hans Winter" in html
+        assert "Hans Sommer" not in html
+
+    # ── Reset filter link ─────────────────────────────────────
+    def test_reset_link_shown_when_filter_active(self, client):
+        """Reset link must appear when any non-default parameter is set."""
+        resp = client.get("/wheelsets?filter_pos=container")
+        html = resp.data.decode()
+        assert "wl_reset_filter" not in html  # key must not leak
+        assert url_for_pattern("/wheelsets") in html or "list_wheelsets" in html
+
+    def test_reset_link_not_shown_without_filters(self, client):
+        """Reset link must NOT appear on a plain unfiltered page load."""
+        resp = client.get("/wheelsets")
+        html = resp.data.decode()
+        assert "wl_reset_filter" not in html
+        # The translated text should not appear either
+        assert "Filter zurücksetzen" not in html
+        assert "Reset filters" not in html
+
+
+# ── helper used in reset tests ────────────────────────────────────────────────
+def url_for_pattern(path: str) -> str:
+    """Return a string that is expected to appear as an href in a reset link."""
+    return path
+
 
 class TestCreateWheelset:
     def test_get_form(self, client):

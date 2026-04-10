@@ -37,7 +37,12 @@ SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False,
 # ========================================================
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    """"""
+    # Override SQLite's ASCII-only lower() with Python's Unicode-aware version
+    # so that ilike/LIKE queries work correctly with German umlauts etc.
+    dbapi_connection.create_function(
+        "lower", 1,
+        lambda s: s.lower() if isinstance(s, str) else s
+    )
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("PRAGMA journal_mode=WAL;")

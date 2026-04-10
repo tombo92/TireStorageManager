@@ -140,15 +140,38 @@ def register_routes(app):
         db = SessionLocal()
         try:
             q = request.args.get("q", "").strip()
+            sort = request.args.get("sort", "updated_desc")
+            filter_pos = request.args.get("filter_pos", "")
+            filter_season = request.args.get("filter_season", "")
+
             query = db.query(WheelSet)
             if q:
                 like = f"%{q}%"
                 query = query.filter(
                     (WheelSet.customer_name.ilike(like)) |
                     (WheelSet.license_plate.ilike(like)) |
-                    (WheelSet.car_type.ilike(like))
+                    (WheelSet.car_type.ilike(like)) |
+                    (WheelSet.note.ilike(like))
                 )
-            items = query.order_by(WheelSet.updated_at.desc()).all()
+            if filter_pos == "container":
+                query = query.filter(WheelSet.storage_position.like("C%"))
+            elif filter_pos == "garage":
+                query = query.filter(WheelSet.storage_position.like("GR%"))
+            if filter_season:
+                query = query.filter(WheelSet.season == filter_season)
+
+            sort_map = {
+                "updated_desc":  WheelSet.updated_at.desc(),
+                "updated_asc":   WheelSet.updated_at.asc(),
+                "customer_asc":  WheelSet.customer_name.asc(),
+                "customer_desc": WheelSet.customer_name.desc(),
+                "plate_asc":     WheelSet.license_plate.asc(),
+                "plate_desc":    WheelSet.license_plate.desc(),
+                "position_asc":  WheelSet.storage_position.asc(),
+                "position_desc": WheelSet.storage_position.desc(),
+            }
+            order = sort_map.get(sort, WheelSet.updated_at.desc())
+            items = query.order_by(order).all()
             s = get_or_create_settings(db)
 
             # Seasonal overdue detection (only when tire details enabled)
@@ -163,9 +186,16 @@ def register_routes(app):
                         if w.season == due_season:
                             overdue_ids.add(w.id)
 
-            return render_template("wheelsets_list.html", items=items,
-                                   settings=s, overdue_ids=overdue_ids,
-                                   active="wheelsets")
+            return render_template(
+                "wheelsets_list.html",
+                items=items,
+                settings=s,
+                overdue_ids=overdue_ids,
+                active="wheelsets",
+                sort=sort,
+                filter_pos=filter_pos,
+                filter_season=filter_season,
+            )
         finally:
             SessionLocal.remove()
 
