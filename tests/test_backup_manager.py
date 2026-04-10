@@ -1,9 +1,8 @@
 """Tests for tsm/backup_manager.py — backup, CSV and XLSX export."""
 import os
 import tempfile
-from unittest.mock import patch
 
-from tsm.models import WheelSet, Settings, AuditLog
+from tsm.models import WheelSet, AuditLog
 from tsm.backup_manager import BackupManager, export_csv_snapshot, export_xlsx_snapshot
 
 
@@ -216,7 +215,7 @@ class TestExportXlsx:
             assert len(xlsx_files) == 1
 
     def test_xlsx_retention(self, db_session, db_engine, seed_wheelset,
-                             seed_settings, monkeypatch):
+                            seed_settings, monkeypatch):
         """BackupManager must respect retention limit for XLSX files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             import tsm.backup_manager as bm_mod

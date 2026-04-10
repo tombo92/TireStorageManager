@@ -1,8 +1,6 @@
 """Tests for tsm/positions.py — position validation, sorting, free/disabled."""
 import json
-import pytest
 from tsm.positions import (
-    all_valid_positions,
     is_valid_position,
     position_sort_key,
     get_occupied_positions,
@@ -20,7 +18,7 @@ from tsm.positions import (
     RE_CONTAINER,
     RE_GARAGE,
 )
-from tsm.models import WheelSet, DisabledPosition, Settings
+from tsm.models import Settings
 
 
 # ── Validation ─────────────────────────────────────────

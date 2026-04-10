@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -26,7 +25,6 @@ import logging.handlers
 import os
 import signal
 import sys
-from typing import Optional
 
 # --- Early parse: extract --data-dir so env is set before config loads ---
 _pre = argparse.ArgumentParser(add_help=False)
@@ -37,11 +35,11 @@ if _early.data_dir:
     os.environ["TSM_DATA_DIR"] = _early.data_dir
 
 # Now safe to import config and app modules
-from tsm.app import create_app                          # noqa: E402
-from tsm.backup_manager import BackupManager            # noqa: E402
-from tsm.self_update import check_for_update            # noqa: E402
-from tsm.db import engine                               # noqa: E402
-from config import BACKUP_DIR, LOG_LEVEL, LOG_DIR       # noqa: E402
+from config import BACKUP_DIR, LOG_DIR, LOG_LEVEL  # noqa: E402
+from tsm.app import create_app  # noqa: E402
+from tsm.backup_manager import BackupManager  # noqa: E402
+from tsm.db import engine  # noqa: E402
+from tsm.self_update import check_for_update  # noqa: E402
 
 # ========================================================
 # LOGGING
@@ -80,7 +78,7 @@ class Runner:
         self.port = port
         self.dev = dev
         self.app = create_app()
-        self._backup: Optional[BackupManager] = None
+        self._backup: BackupManager | None = None
         self._stopping = False
         self._server = None
 

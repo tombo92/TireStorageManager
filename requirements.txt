@@ -1,7 +1,4 @@
-
-Flask>=2.3,<3.0
-Flask-Babel>=3.0,<5.0
-SQLAlchemy>=2.0,<3.0
-waitress==3.0.2
-pyinstaller>=6.0,<7.0
-openpyxl==3.1.5
+# Runtime dependencies are declared in pyproject.toml [project.dependencies].
+# This file exists for tooling that does not read pyproject.toml (e.g. Docker,
+# some IDE setups). Keep it in sync with pyproject.toml.
+.

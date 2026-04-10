@@ -1,0 +1,6 @@
+{
+    "editor.rulers": [110],
+    "ruff.lineLength": 110,
+    "ruff.exclude": ["tests", "tools"],
+    "python.analysis.exclude": ["tests", "tools"]
+}

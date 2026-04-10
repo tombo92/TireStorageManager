@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -9,42 +8,51 @@ All routes attached to app
 # ========================================================
 # IMPORTS
 # ========================================================
-import json
 import os
 from collections import defaultdict
 from datetime import datetime
-from flask import (
-    request, redirect, url_for, flash, render_template, abort,
-    send_from_directory, jsonify, g
-)
+
+from flask import abort, flash, g, jsonify, redirect, render_template, request, send_from_directory, url_for
 from sqlalchemy.exc import IntegrityError
+
+from config import BACKUP_DIR
+
+# for route use (CSV + XLSX)
+from tsm.backup_manager import export_csv_snapshot
 
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
 from tsm.db import SessionLocal
-from tsm.models import WheelSet, Settings, AuditLog
+from tsm.i18n import gettext as _
+from tsm.models import AuditLog, Settings, WheelSet
 from tsm.positions import (
-    is_valid_position, get_occupied_positions,
-    first_free_position, free_positions, get_disabled_positions,
-    is_usable_position, position_sort_key, get_effective_positions,
-    save_custom_positions, reset_custom_positions,
-    SORTED_POSITIONS, RE_CONTAINER, RE_GARAGE,
+    RE_CONTAINER,
+    RE_GARAGE,
+    SORTED_POSITIONS,
+    first_free_position,
+    free_positions,
+    get_disabled_positions,
+    get_effective_positions,
+    get_occupied_positions,
+    is_usable_position,
+    is_valid_position,
+    position_sort_key,
+    reset_custom_positions,
+    save_custom_positions,
+)
+from tsm.self_update import (
+    _is_frozen,
+    check_for_update,
+    get_update_info,
+    invalidate_update_cache,
 )
 from tsm.utils import (
-    validate_csrf,
     is_valid_license_plate,
     normalize_license_plate,
     overdue_season,
+    validate_csrf,
 )
-from tsm.i18n import gettext as _
-# for route use (CSV + XLSX)
-from tsm.backup_manager import export_csv_snapshot, export_xlsx_snapshot
-from tsm.self_update import (
-    get_update_info, invalidate_update_cache,
-    check_for_update, _is_frozen,
-)
-from config import BACKUP_DIR
 
 
 # ========================================================
@@ -575,9 +583,9 @@ def register_routes(app):
                         pass
         # Sort each group's files: db first, then csv, then xlsx
         type_order = {"db": 0, "csv": 1, "xlsx": 2}
-        groups = sorted(seen.values(), key=lambda g: g["ts"], reverse=True)
-        for g in groups:
-            g["files"].sort(key=lambda x: type_order.get(x["type"], 9))
+        groups = sorted(seen.values(), key=lambda grp: grp["ts"], reverse=True)
+        for grp in groups:
+            grp["files"].sort(key=lambda x: type_order.get(x["type"], 9))
         return render_template(
             "backups.html", backup_groups=groups, active="backups"
         )

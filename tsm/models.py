@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -9,11 +8,10 @@ Models
 # ========================================================
 # IMPORTS
 # ========================================================
-from datetime import datetime, timezone
-from sqlalchemy.orm import declarative_base
-from sqlalchemy import (Column, Integer, String, DateTime, Text, Boolean,
-                        UniqueConstraint)
+from datetime import UTC, datetime
 
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import declarative_base
 
 # ========================================================
 # GLOBALS
@@ -47,10 +45,10 @@ class WheelSet(Base):
     rim_type = Column(String(20), nullable=True)
     exchange_note = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC),
                         nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc),
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC),
+                        onupdate=lambda: datetime.now(UTC),
                         nullable=False)
 
     __table_args__ = (
@@ -73,8 +71,8 @@ class Settings(Base):
     custom_positions_json = Column(Text, nullable=True)
     enable_tire_details = Column(Boolean, nullable=False, default=False)
     enable_seasonal_tracking = Column(Boolean, nullable=False, default=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc),
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC),
+                        onupdate=lambda: datetime.now(UTC),
                         nullable=False)
 
 
@@ -90,7 +88,7 @@ class AuditLog(Base):
     # optional (bei backup None)
     wheelset_id = Column(Integer, nullable=True)
     details = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC),
                         nullable=False)
 
 
@@ -98,4 +96,4 @@ class DisabledPosition(Base):
     __tablename__ = "disabled_positions"
     code = Column(String(20), primary_key=True, index=True)
     reason = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)

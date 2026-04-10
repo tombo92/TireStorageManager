@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Lightweight i18n for TireStorageManager.
 
@@ -199,12 +198,12 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "index_total":              {"de": "Gesamt",                "en": "Total"},
     "index_occupied":           {"de": "Belegt",                "en": "Occupied"},
     "index_free":               {"de": "Frei",                  "en": "Free"},
-    "index_next_free":          {"de": "Nächste freie Position","en": "Next free position"},
+    "index_next_free":          {"de": "Nächste freie Position", "en": "Next free position"},
     "index_none":               {"de": "Keine",                 "en": "None"},
     "stats_occupancy":          {"de": "Auslastung",            "en": "Occupancy"},
     "stats_positions":          {"de": "Stellplätze",           "en": "Positions"},
     "stats_recent":             {"de": "Letzte Aktivitäten",    "en": "Recent activity"},
-    "stats_no_activity":        {"de": "Noch keine Aktivitäten","en": "No activity yet"},
+    "stats_no_activity":        {"de": "Noch keine Aktivitäten", "en": "No activity yet"},
     "stats_top_cars":           {"de": "Häufigste Fahrzeuge",   "en": "Top vehicles"},
     "stats_no_cars":            {"de": "Noch keine Einträge",   "en": "No entries yet"},
     "stats_action_create":      {"de": "Angelegt",              "en": "Created"},
@@ -239,7 +238,7 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "wl_filter_container":   {"de": "Nur Container",      "en": "Containers only"},
     "wl_filter_garage":      {"de": "Nur Garage",         "en": "Garage only"},
     "wl_filter_all_season":  {"de": "Alle Saisons",       "en": "All seasons"},
-    "wl_reset_filter":       {"de": "Filter zurücksetzen","en": "Reset filters"},
+    "wl_reset_filter":       {"de": "Filter zurücksetzen", "en": "Reset filters"},
     "wl_overdue_hint": {
         "de": "Reifenwechsel überfällig! "
               "Jan–Apr: Sommerreifen sollten bis Dezember abgeholt sein. "
@@ -318,7 +317,7 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     # ── Positions page ───────────────────────────────────────────
     "pos_title":        {"de": "Lagerplätze",           "en": "Storage Positions"},
     "pos_free":         {"de": "Freie Plätze",          "en": "Free positions"},
-    "pos_next":         {"de": "Nächste freie Position","en": "Next free position"},
+    "pos_next":         {"de": "Nächste freie Position", "en": "Next free position"},
     "pos_disabled":     {"de": "Gesperrt",              "en": "Disabled"},
     "pos_none_free":    {"de": "Keine freien Plätze",   "en": "No free positions"},
 
@@ -349,7 +348,10 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     },
     "sp_editor_title":    {"de": "Positionsliste bearbeiten",  "en": "Edit Position List"},
     "sp_editor_hint": {
-        "de": "Eine Position pro Zeile. Die Reihenfolge hier bestimmt die Sortierung überall in der Anwendung.",
+        "de": (
+            "Eine Position pro Zeile. "
+            "Die Reihenfolge hier bestimmt die Sortierung überall in der Anwendung."
+        ),
         "en": "One position per line. The order here determines the sort order throughout the application.",
     },
     "sp_save":            {"de": "Positionen speichern",       "en": "Save positions"},
