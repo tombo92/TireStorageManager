@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -9,16 +8,17 @@ Flask App Factory
 # ========================================================
 # IMPORTS
 # ========================================================
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+
 from flask import Flask, g
+
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
-from config import SECRET_KEY, APP_NAME, VERSION, IS_PRERELEASE
+from config import APP_NAME, IS_PRERELEASE, SECRET_KEY, VERSION
+from tsm.i18n import SUPPORTED_LOCALES, get_locale, gettext
 from tsm.utils import get_csrf_token
-from tsm.i18n import gettext, get_locale, SUPPORTED_LOCALES
-
 
 # --------------------------------------------------------
 # GLOBALS
@@ -60,7 +60,7 @@ def create_app():
     app.jinja_env.globals["APP_VERSION"] = VERSION
     app.jinja_env.globals["APP_NAME"] = APP_NAME
     app.jinja_env.globals["IS_PRERELEASE"] = IS_PRERELEASE
-    app.jinja_env.globals["now"] = lambda: datetime.now(timezone.utc)
+    app.jinja_env.globals["now"] = lambda: datetime.now(UTC)
     app.jinja_env.globals["_"] = gettext
     app.jinja_env.globals["get_locale"] = get_locale
 

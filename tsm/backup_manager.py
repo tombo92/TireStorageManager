@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -9,23 +8,25 @@ Backup Manager
 # ========================================================
 # IMPORTS
 # ========================================================
-import os
 import csv
 import logging
-import threading
+import os
 import sqlite3
-from datetime import datetime, timezone, timedelta
+import threading
 from collections import defaultdict
+from datetime import UTC, datetime, timedelta
+
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
 from config import BACKUP_DIR
 from tsm.db import SessionLocal
-from tsm.models import WheelSet, Settings, AuditLog
-from tsm.positions import position_sort_key, RE_CONTAINER, RE_GARAGE
+from tsm.models import AuditLog, Settings, WheelSet
+from tsm.positions import RE_CONTAINER, RE_GARAGE, position_sort_key
 
 
 # ========================================================
@@ -60,15 +61,15 @@ class BackupManager(threading.Thread):
                     interval = max(1, int(settings.backup_interval_minutes))
                     due = False
                     if self._last_run is None:
-                        self._last_run = datetime.now(timezone.utc)
-                    elif ((datetime.now(timezone.utc) - self._last_run)
+                        self._last_run = datetime.now(UTC)
+                    elif ((datetime.now(UTC) - self._last_run)
                           >= timedelta(minutes=interval)):
                         due = True
                 finally:
                     SessionLocal.remove()
                 if due:
                     self.perform_backup()
-                    self._last_run = datetime.now(timezone.utc)
+                    self._last_run = datetime.now(UTC)
             except Exception:
                 self._log.warning("BackupManager loop error",
                                   exc_info=True)
@@ -77,7 +78,7 @@ class BackupManager(threading.Thread):
     def perform_backup(self):
         """Perform a backup of the database and export a CSV and XLSX snapshot. Old backups
         """
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         bfile = os.path.join(self.backup_dir, f"wheel_storage_{ts}.db")
 
         raw = self.engine.raw_connection()
@@ -152,7 +153,7 @@ def export_csv_snapshot(target_path: str | None = None) -> str:
         rows = db.query(WheelSet).order_by(
             WheelSet.storage_position.asc()).all()
         if target_path is None:
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             target_path = os.path.join(BACKUP_DIR, f"wheel_storage_{ts}.csv")
         with open(target_path, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f, delimiter=';')
@@ -168,13 +169,14 @@ def export_csv_snapshot(target_path: str | None = None) -> str:
                     (r.created_at.isoformat() if r.created_at else ""),
                     (r.updated_at.isoformat() if r.updated_at else ""),
                 ])
+        filename = os.path.basename(target_path)
         db.add(AuditLog(action="backup_csv",
-                        details=f"CSV exportiert: {os.path.basename(
-                            target_path)}"))
+                        details=f"CSV exportiert: {filename}"))
         db.commit()
         return target_path
     finally:
         SessionLocal.remove()
+
 
 def export_xlsx_snapshot(target_path: str | None = None) -> str:
     """Export a print-ready XLSX inventory grouped by container and garage."""
@@ -184,7 +186,7 @@ def export_xlsx_snapshot(target_path: str | None = None) -> str:
         rows = sorted(rows, key=lambda r: position_sort_key(r.storage_position))
 
         if target_path is None:
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             target_path = os.path.join(BACKUP_DIR, f"wheel_storage_{ts}.xlsx")
 
         # Group by container (C1–C4) or garage shelf (GR1–GR8)
@@ -244,7 +246,7 @@ def export_xlsx_snapshot(target_path: str | None = None) -> str:
         c = ws["A2"]
         c.value = (
             f"Erstellt: "
-            f"{datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M')} UTC"
+            f"{datetime.now(UTC).strftime('%d.%m.%Y %H:%M')} UTC"
             f"  \u2013  Gesamt: {len(rows)} Rads\u00e4tze"
         )
         c.font = Font(italic=True, size=10)

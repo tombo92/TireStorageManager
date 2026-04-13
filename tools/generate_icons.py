@@ -164,4 +164,4 @@ if __name__ == "__main__":
 
     print(f"✅ Created {ASSETS / 'app.ico'}")
     print(f"✅ Created {ASSETS / 'installer.ico'}")
-    print(f"   (+ PNG previews)")
+    print("   (+ PNG previews)")

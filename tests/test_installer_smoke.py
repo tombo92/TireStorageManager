@@ -196,3 +196,32 @@ class TestInstallerConstants:
 
     def test_payload_seed_db_name(self):
         assert tsm_installer.PAYLOAD_SEED_DB.name == "wheel_storage.db"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# _UPDATE_NOTES_STUB_THRESHOLD — sparse release-notes detection
+# ══════════════════════════════════════════════════════════════════════
+class TestUpdateNotesStubThreshold:
+    def test_is_positive_int(self):
+        assert isinstance(tsm_installer._UPDATE_NOTES_STUB_THRESHOLD, int)
+        assert tsm_installer._UPDATE_NOTES_STUB_THRESHOLD > 0
+
+    def test_short_release_note_is_below_threshold(self):
+        """The v1.6.0 stub ('Siehe Commit-Historie …') must be detected."""
+        stub = (
+            "## TireStorageManager v1.6.0\n\n"
+            "Siehe [Commit-Historie](https://github.com/tombo92/"
+            "TireStorageManager/commits/master).\n"
+        )
+        assert len(stub) < tsm_installer._UPDATE_NOTES_STUB_THRESHOLD
+
+    def test_detailed_release_note_is_above_threshold(self):
+        detailed = (
+            "## What's new\n\n"
+            "- Fixed SSL CERTIFICATE_VERIFY_FAILED on corporate networks\n"
+            "- Added --ui-dev flag to installer\n"
+            "- Improved update banner layout\n"
+            "- Added re-install / already-uninstalled guards\n"
+            "- Python 3.12 migration, ruff linter, pyproject consolidation\n"
+        )
+        assert len(detailed) >= tsm_installer._UPDATE_NOTES_STUB_THRESHOLD

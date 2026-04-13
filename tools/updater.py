@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -16,17 +15,18 @@ Lightweight auto-updater for TireStorage Manager (Windows friendly)
 # ========================================================
 # IMPORTS
 # ========================================================
-import os
-from pathlib import Path
-import re
 import io
-import sys
-import time
-import urllib.request
-import urllib.error
-import zipfile
-import tempfile
 import json
+import os
+import re
+import ssl
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+import zipfile
+from pathlib import Path
 
 # ========================================================
 # GLOBALS
@@ -68,6 +68,19 @@ def log(msg: str):
     print(f"[updater] {msg}")
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """Return an SSL context that trusts the OS certificate store.
+
+    On Windows this includes enterprise/corporate root CAs deployed via
+    Group Policy, which fixes SSL_CERTIFICATE_VERIFY_FAILED errors in
+    managed networks without disabling certificate verification.
+    """
+    ctx = ssl.create_default_context()
+    if sys.platform == "win32":
+        ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    return ctx
+
+
 def _make_request(url: str,
                   headers: dict | None = None) -> urllib.request.Request:
     base_headers = {
@@ -85,7 +98,7 @@ def _make_request(url: str,
 
 def read_local_version(path: str) -> str | None:
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(path, encoding="utf-8", errors="ignore") as f:
             m = VERSION_RX.search(f.read())
             return m.group(1) if m else None
     except Exception:
@@ -102,7 +115,7 @@ def fetch_text_nocache(url: str, timeout=15) -> str | None:
     nocache_url = f"{url}{sep}ts={ts}"
     req = _make_request(nocache_url)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
             return resp.read().decode("utf-8", errors="ignore")
     except Exception as e:
         log(f"WARN: fetch_text_nocache failed for {url}: {e}")
@@ -125,7 +138,7 @@ def fetch_zip_bytes() -> bytes:
     sep = "&" if "?" in ZIP_URL else "?"
     url = f"{ZIP_URL}{sep}ts={ts}"
     req = _make_request(url, headers={"Accept": "application/zip"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:
         return resp.read()
 
 
@@ -190,7 +203,7 @@ def fetch_latest_commit_sha() -> str | None:
     try:
         req = _make_request(COMMITS_URL,
                             headers={"Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=_ssl_context()) as resp:
             obj = json.loads(resp.read().decode("utf-8", errors="ignore"))
         # The endpoint returns a commit object for ref/branch. We use 'sha'.
         if isinstance(obj, dict) and "sha" in obj:

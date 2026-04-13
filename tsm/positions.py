@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -11,8 +10,8 @@ Positions Logic
 # ========================================================
 import json
 import re
-from tsm.models import WheelSet, DisabledPosition, Settings
 
+from tsm.models import DisabledPosition, Settings, WheelSet
 
 # ========================================================
 # GLOBALS
