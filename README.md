@@ -58,7 +58,7 @@ Invalid plates are also rejected on the server before they can be saved.
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.12+
 - Windows (or Linux/macOS for development; service features are Windows-only)
 
 ### Setup
@@ -68,8 +68,8 @@ git clone https://github.com/tombo92/TireStorageManager.git
 cd TireStorageManager
 python -m venv .venv
 source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r requirements-test.txt
+pip install .
+pip install .[test]
 ```
 
 ### Run in development mode
@@ -168,6 +168,9 @@ CI signing is automatic when the `CODE_SIGN_PFX_BASE64` and `CODE_SIGN_PASSWORD`
 ```bash
 pytest tests/ -v --tb=short
 ```
+
+Release Acceptance Tests are started via `tools/release_acceptance_test.py`.
+Implementation is split into focused modules under `tools/rat/` (`helpers.py`, `phase1.py`, `phase2.py`, `phase345.py`).
 
 ---
 
@@ -310,17 +313,23 @@ flowchart TD
 
 Changes to the CI workflow file itself (`.github/workflows/**`) trigger all test and build jobs automatically. The **Publish** group (bump, commit-bump, release) is skipped because those jobs require app source files to have changed.
 
+### Coverage in CI
+
+- `test-app` runs with `pytest-cov` and uploads `coverage.xml` as artifact `coverage-report-<run_id>`.
+- `test-installer` runs with `pytest-cov` and uploads `coverage-installer.xml` as artifact `coverage-installer-report-<run_id>`.
+
 ### Job reference
 
 | Job | Scope | Condition |
 | --- | ----- | --------- |
 | `changes` | all | always |
+| `lint` | all | always (gates `bump`) |
 | `test-app` | all | app files changed |
 | `test-installer` | all | `installer/` changed |
-| `bump` | develop + master | app changed, test-app passed or skipped |
+| `bump` | develop + master | lint passed, app changed, test-app passed or skipped |
 | `build-app` | all | test-app + bump passed or skipped |
 | `smoke-app` | all | app changed, build-app passed |
-| `build-installer` | all | installer changed, build-app passed, smoke-app passed or skipped |
+| `build-installer` | all | build-app passed, smoke-app passed or skipped, and (`installer/` changed OR `bump` succeeded) |
 | `smoke-installer` | all | installer changed, build-installer passed |
 | `release-test` | master + manual | smoke-app + smoke-installer passed or skipped, build-app passed |
 | `commit-bump` | develop + master | all previous passed or skipped; on master: release-test must pass |
@@ -338,8 +347,8 @@ TireStorageManager/
 ├── tsm/                    # Application package
 │   ├── app.py              # Flask app factory
 │   ├── models.py           # SQLAlchemy models (WheelSet, Settings, AuditLog, …)
-│   ├── routes.py           # URL routes
-│   ├── db.py               # Database engine, session & auto-migration
+│   ├── routes.py           # URL route handlers (module-level, registered via add_url_rule)
+│   ├── db.py               # Database engine, session, auto-migration & DB helpers
 │   ├── backup_manager.py   # Automatic backup logic
 │   ├── positions.py        # Storage position helpers & custom position support
 │   ├── utils.py            # CSRF, resource path helpers
@@ -348,6 +357,13 @@ TireStorageManager/
 ├── static/                 # CSS and JavaScript
 ├── tests/                  # pytest test suite
 ├── tools/                  # Developer utilities (version bump, code signing, …)
+│   ├── release_acceptance_test.py   # Entry point (imports from tools/rat/)
+│   ├── rat/                         # Release Acceptance Test modules
+│   │   ├── helpers.py               # HTTP/OS/SQLite infrastructure, test reporter
+│   │   ├── phase1.py                # App EXE standalone checks (CRUD, settings, …)
+│   │   ├── phase2.py                # Installer end-to-end checks
+│   │   └── phase345.py              # Update flow, installer upgrade, update-check
+│   └── smoke_test.py                # Live smoke test (10 suites, no pytest required)
 ├── payload/                # Bundled assets for the installer (nssm.exe, seed DB)
 ├── installer/              # Installer package
 │   ├── installer_logic.py  # Pure-logic install/uninstall steps (no Tkinter)

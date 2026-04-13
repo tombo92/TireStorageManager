@@ -4,7 +4,6 @@ Unit & integration tests for the wheelset list search, sort and filter logic.
 Tests operate directly against a real SQLAlchemy session (in-memory SQLite)
 so they are fast and do not require the Flask request cycle.
 """
-import pytest
 
 from tsm.models import WheelSet
 
@@ -29,7 +28,6 @@ def _add(db, name, plate, car, pos, note=None, season=None):
 def _search(db, q="", sort="updated_desc", filter_pos="",
             filter_season=""):
     """Replicate the query logic from list_wheelsets without Flask."""
-    from sqlalchemy import asc, desc
 
     query = db.query(WheelSet)
 

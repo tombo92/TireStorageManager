@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -10,12 +9,13 @@ DB
 # IMPORTS
 # ========================================================
 from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import scoped_session, sessionmaker
+
 # --------------------------------------------------------
 # Local Imports
 # --------------------------------------------------------
 from config import DB_PATH
-from tsm.models import Base  # ensure models import happens before create_all
+from tsm.models import AuditLog, Base, Settings  # ensure models import happens before create_all
 
 # ========================================================
 # GLOBALS
@@ -116,3 +116,23 @@ def _migrate():
 
 
 _migrate()
+
+
+# ========================================================
+# DB-level helpers shared across the application
+# ========================================================
+
+def get_or_create_settings(db) -> Settings:
+    """Return the single Settings row, creating it with defaults if absent."""
+    s = db.query(Settings).first()
+    if s is None:
+        s = Settings(backup_interval_minutes=60, backup_copies=10)
+        db.add(s)
+        db.commit()
+    return s
+
+
+def log_action(db, action: str, wheelset_id=None, details=None) -> None:
+    """Append an entry to the AuditLog table and commit."""
+    db.add(AuditLog(action=action, wheelset_id=wheelset_id, details=details))
+    db.commit()

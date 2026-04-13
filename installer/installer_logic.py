@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 installer_logic.py  –  Pure-logic helpers for the TSM Installer/Uninstaller.
 
@@ -9,19 +8,192 @@ here so they can be mocked in unit tests.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import sqlite3
+import ssl
 import subprocess
 import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 # ========================================================
 # CONSTANTS (duplicated from TSMInstaller for independence)
 # ========================================================
 APP_NAME = "TireStorageManager"
 SERVICE_NAME = "TireStorageManager"
+
+# GitHub release coordinates — can be overridden via env vars
+_GH_OWNER = os.environ.get("TSM_GH_OWNER", "tombo92")
+_GH_REPO = os.environ.get("TSM_GH_REPO", "TireStorageManager")
+_GH_RELEASES_URL = (
+    f"https://api.github.com/repos/{_GH_OWNER}/{_GH_REPO}/releases/latest"
+)
+_HTTP_TIMEOUT = 20
+_INSTALLER_ASSET_NAME = "TSM-Installer.exe"
+_CHANGELOG_RAW_URL = (
+    f"https://raw.githubusercontent.com/{_GH_OWNER}/{_GH_REPO}/master/CHANGELOG.md"
+)
+
+
+# ========================================================
+# UPDATE CHECK (SSL-safe, corporate-network aware)
+# ========================================================
+def _ssl_context() -> ssl.SSLContext:
+    """Return an SSL context that trusts the OS certificate store.
+
+    On Windows this includes enterprise root CAs deployed via Group Policy,
+    which fixes SSL_CERTIFICATE_VERIFY_FAILED in managed/corporate networks.
+    Certificate verification is never disabled.
+    """
+    ctx = ssl.create_default_context()
+    if os.name == "nt":
+        ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)
+    return ctx
+
+
+def _ver_tuple(v: str) -> tuple[int, ...]:
+    """Parse a version string into a comparable tuple, ignoring pre-release suffixes."""
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", v)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    return (0, 0, 0)
+
+
+def _fetch_changelog_section(remote_version: str) -> str | None:
+    """Fetch CHANGELOG.md and return the section body for *remote_version*.
+
+    Returns the text between the ``## [remote_version]`` header and the
+    next ``## [`` header (both excluded), or ``None`` if the section is
+    absent, empty, or the fetch fails.
+    """
+    try:
+        req = urllib.request.Request(
+            _CHANGELOG_RAW_URL,
+            headers={"User-Agent": "TSM-Installer/1.0"},
+        )
+        with urllib.request.urlopen(
+            req, timeout=_HTTP_TIMEOUT, context=_ssl_context()
+        ) as resp:
+            text = resp.read().decode("utf-8")
+    except Exception:
+        return None
+
+    pattern = (
+        r"##\s*\[" + re.escape(remote_version) + r"\][^\n]*\n"
+        r"(.*?)"
+        r"(?=\n##\s*\[|\Z)"
+    )
+    m = re.search(pattern, text, re.DOTALL)
+    if not m:
+        return None
+    section = m.group(1).strip()
+    return section or None
+
+
+def fetch_update_info(current_version: str) -> dict:
+    """Check GitHub Releases for a version newer than *current_version*.
+
+    Returns a dict with keys:
+        update_available (bool), current_version (str),
+        remote_version (str | None), release_notes (str | None),
+        changelog_section (str | None), release_url (str | None),
+        installer_url (str | None).
+
+    Never raises — network / SSL errors are swallowed and reflected as
+    ``update_available=False``.
+    """
+    result: dict = {
+        "update_available": False,
+        "current_version": current_version,
+        "remote_version": None,
+        "release_notes": None,
+        "changelog_section": None,
+        "release_url": None,
+        "installer_url": None,
+    }
+    try:
+        ts = int(time.time())
+        url = f"{_GH_RELEASES_URL}?ts={ts}"
+        headers = {
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "User-Agent": "TSM-Installer/1.0",
+            "Accept": "application/vnd.github+json",
+        }
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(
+            req, timeout=_HTTP_TIMEOUT, context=_ssl_context()
+        ) as resp:
+            release = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return result
+
+    tag = release.get("tag_name", "")
+    remote_ver = tag.lstrip("v")
+    result["remote_version"] = remote_ver or None
+    result["release_notes"] = release.get("body") or None
+    result["release_url"] = release.get("html_url") or None
+
+    for asset in release.get("assets", []):
+        if asset.get("name", "").lower() == _INSTALLER_ASSET_NAME.lower():
+            result["installer_url"] = asset.get("browser_download_url")
+            break
+
+    if remote_ver and _ver_tuple(remote_ver) > _ver_tuple(current_version):
+        result["update_available"] = True
+
+    result["changelog_section"] = (
+        _fetch_changelog_section(remote_ver) if remote_ver else None
+    )
+
+    return result
+
+
+def download_file(
+    url: str,
+    dest: Path,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> bool:
+    """Download *url* to *dest*, calling *on_progress(received, total)* per chunk.
+
+    Returns True on success.  Never raises.
+    """
+    headers = {
+        "Cache-Control": "no-cache",
+        "User-Agent": "TSM-Installer/1.0",
+        "Accept": "application/octet-stream",
+    }
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(
+            req, timeout=120, context=_ssl_context()
+        ) as resp:
+            total = int(resp.headers.get("Content-Length") or 0)
+            received = 0
+            ensure_dir(dest.parent)
+            with open(dest, "wb") as fh:
+                while True:
+                    chunk = resp.read(64 * 1024)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    received += len(chunk)
+                    if on_progress:
+                        on_progress(received, total)
+        return True
+    except Exception:
+        return False
 
 
 # ========================================================
@@ -44,7 +216,7 @@ def run_shell(cmd: str, check: bool = False) -> subprocess.CompletedProcess:
     """Run a shell command string and return the result."""
     return subprocess.run(
         cmd, shell=True, capture_output=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", check=check,
     )
 
 
@@ -65,7 +237,7 @@ def copy_file(src: Path, dest: Path, overwrite: bool = False) -> bool:
 def create_directories(
     install_dir: Path,
     data_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Step 1 – create install + data sub-directories."""
     for d in [
@@ -83,7 +255,7 @@ def create_directories(
 def deploy_nssm(
     src: Path,
     install_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> Path:
     """Step 2 – copy nssm.exe into *install_dir*. Returns dest path."""
     target = install_dir / "nssm.exe"
@@ -97,7 +269,7 @@ def deploy_nssm(
 def deploy_app_exe(
     src: Path,
     install_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> Path:
     """Step 3 – copy TireStorageManager.exe into *install_dir*.
 
@@ -119,7 +291,7 @@ def deploy_app_exe(
 def seed_database(
     seed_db: Path,
     data_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Step 4 – copy seed DB if the target doesn't exist yet."""
     db_path = data_dir / "db" / "wheel_storage.db"
@@ -137,7 +309,7 @@ def seed_database(
 
 def add_firewall_rule(
     port: int,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Step 5 – add an inbound TCP firewall rule."""
     rule_name = f"{APP_NAME} TCP {port}"
@@ -162,7 +334,7 @@ def install_service(
     install_dir: Path,
     display_name: str = "Reifenmanager",
     secret_key: str = "",
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Step 6 – register the Windows Service via NSSM."""
     # Remove any existing service
@@ -205,7 +377,7 @@ def install_service(
 
 def start_service(
     nssm: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Step 7 – start the service."""
     result = run_cmd(["sc.exe", "start", SERVICE_NAME], check=False)
@@ -226,10 +398,10 @@ def validate_port(value: str) -> int:
     """
     try:
         port = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
         raise ValueError(
             f"'{value}' ist keine gültige Zahl."
-        )
+        ) from exc
     if not 1 <= port <= 65535:
         raise ValueError(
             f"Port {port} liegt außerhalb des gültigen Bereichs "
@@ -244,7 +416,7 @@ def resolve_display_name(raw: str) -> str:
 
 
 def create_update_task(
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Step 8 – schedule a daily service restart at 03:00."""
     task_name = f"{APP_NAME}_DailyUpdate"
@@ -358,7 +530,7 @@ def restore_database(
     source_db: Path,
     data_dir: Path,
     install_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Replace the live database with *source_db* (e.g. a backup).
 
@@ -404,8 +576,8 @@ def restore_database(
 def create_desktop_shortcut(
     url: str,
     display_name: str = "Reifenmanager",
-    icon_path: Optional[Path] = None,
-    log: Optional[Callable[[str], None]] = None,
+    icon_path: Path | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Step 9 – create a .url Internet Shortcut on the All Users Desktop."""
     desktop = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"
@@ -420,7 +592,7 @@ def create_desktop_shortcut(
 
 def remove_desktop_shortcut(
     display_name: str = "Reifenmanager",
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Uninstall – remove the .url shortcut from the All Users Desktop."""
     desktop = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"
@@ -438,9 +610,21 @@ def remove_desktop_shortcut(
 # ========================================================
 # UNINSTALL STEPS
 # ========================================================
+def service_exists() -> bool:
+    """Return True if the Windows Service is currently registered.
+
+    Uses ``sc.exe query`` which exits 0 when the service exists
+    (regardless of whether it is running or stopped) and non-zero when
+    the service is not registered at all.
+    """
+    result = run_cmd(
+        ["sc.exe", "query", SERVICE_NAME], check=False)
+    return result.returncode == 0
+
+
 def stop_service(
     install_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Uninstall step 1 – stop the running service and wait until the
     process has fully released its file handles."""
@@ -486,7 +670,7 @@ def stop_service(
 
 def remove_service(
     install_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Uninstall step 2 – delete the Windows Service."""
     nssm = install_dir / "nssm.exe"
@@ -506,7 +690,7 @@ def remove_service(
 
 
 def remove_scheduled_task(
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Uninstall step 3 – delete the daily scheduled task."""
     task_name = f"{APP_NAME}_DailyUpdate"
@@ -520,8 +704,8 @@ def remove_scheduled_task(
 
 
 def remove_firewall_rules(
-    extra_port: Optional[int] = None,
-    log: Optional[Callable[[str], None]] = None,
+    extra_port: int | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Uninstall step 4 – remove firewall rules."""
     deleted = False
@@ -546,7 +730,7 @@ def _delete_with_retry(
     path: Path,
     retries: int = 5,
     delay: float = 1.5,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> bool:
     """Try to delete *path* (file or directory) up to *retries* times.
     Falls back to scheduling deletion on next reboot via MoveFileEx
@@ -581,7 +765,7 @@ def _delete_with_retry(
 
 def remove_install_dir(
     install_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Uninstall step 5 – delete install directory contents."""
     if not install_dir.exists():
@@ -608,7 +792,7 @@ def remove_install_dir(
 
 def remove_data_dir(
     data_dir: Path,
-    log: Optional[Callable[[str], None]] = None,
+    log: Callable[[str], None] | None = None,
 ) -> None:
     """Uninstall step 6 – delete data directory entirely."""
     if not data_dir.exists():

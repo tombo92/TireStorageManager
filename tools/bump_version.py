@@ -30,8 +30,13 @@ from pathlib import Path
 # ========================================================
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.py"
 CHANGELOG_PATH = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+PYPROJECT_PATH = Path(__file__).resolve().parents[1] / "pyproject.toml"
 VERSION_RX = re.compile(
     r'(^\s*VERSION\s*=\s*")(\d+)\.(\d+)\.(\d+)(".*$)',
+    re.MULTILINE,
+)
+PYPROJECT_VERSION_RX = re.compile(
+    r'^(version\s*=\s*")\d+\.\d+\.\d+(")',
     re.MULTILINE,
 )
 
@@ -40,10 +45,30 @@ VERSION_RX = re.compile(
 # FUNCTIONS
 # ========================================================
 def _stamp_changelog(new_version: str):
-    """Move [Unreleased] entries into a versioned section."""
+    """Move [Unreleased] entries into a versioned section.
+
+    Prints a warning to stderr when the [Unreleased] section is empty
+    so the release notes are not silently blank.
+    """
     if not CHANGELOG_PATH.exists():
         return
     text = CHANGELOG_PATH.read_text(encoding="utf-8")
+
+    # Check if [Unreleased] has any content
+    section_re = re.compile(r"^## \[([^\]]+)\][^\n]*$", re.MULTILINE)
+    for m in section_re.finditer(text):
+        if m.group(1).lower() == "unreleased":
+            start = m.end()
+            nxt = section_re.search(text, start)
+            body = (text[start:nxt.start()] if nxt else text[start:]).strip()
+            if not body:
+                print(
+                    "WARN: [Unreleased] section is empty – "
+                    "release notes will be blank. "
+                    "Add entries to CHANGELOG.md before merging.",
+                    file=sys.stderr,
+                )
+            break
 
     today = date.today().isoformat()  # YYYY-MM-DD
     new_heading = (
@@ -55,6 +80,16 @@ def _stamp_changelog(new_version: str):
     updated = text.replace("## [Unreleased]", new_heading, 1)
     if updated != text:
         CHANGELOG_PATH.write_text(updated, encoding="utf-8")
+
+
+def _sync_pyproject_version(new_version: str) -> None:
+    """Keep [project] version in pyproject.toml in sync with config.py."""
+    if not PYPROJECT_PATH.exists():
+        return
+    text = PYPROJECT_PATH.read_text(encoding="utf-8")
+    updated = PYPROJECT_VERSION_RX.sub(rf'\g<1>{new_version}\g<2>', text, count=1)
+    if updated != text:
+        PYPROJECT_PATH.write_text(updated, encoding="utf-8")
 
 
 def main() -> int:
@@ -92,6 +127,7 @@ def main() -> int:
         return 4
 
     CONFIG_PATH.write_text(new_text, encoding="utf-8")
+    _sync_pyproject_version(new_version)
     _stamp_changelog(new_version)
     # print only the version — CI captures this via $()
     print(new_version)
