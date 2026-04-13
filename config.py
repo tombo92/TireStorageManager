@@ -18,7 +18,7 @@ from pathlib import Path
 # ========================================================
 # GLOBALS
 # ========================================================
-VERSION = "1.6.2"
+VERSION = "1.6.3"
 APP_NAME = os.environ.get("TSM_APP_NAME", "Reifenmanager")
 
 # Set to "1" by the CI on develop builds — signals a pre-release/test build
