@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] – 2026-04-13
+
 ### Added
 - **Smoke and Release Acceptance Test coverage extended** — language selector, tire details toggle, and seasonal tracking toggle are now exercised in both the EXE smoke test and the RAT (Phase 1b-ext and Phase 1c).
 - **Ruff linter** — replaces flake8; runs on every push and PR before the version bump is allowed to proceed, ensuring no build or release can start with lint failures.
