@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-03-25
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -34,17 +33,16 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import os
 import socket
 import sys
 import threading
 import time
+import tkinter as tk
 import winreg
 from pathlib import Path
-from typing import Optional
-
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 from installer import installer_logic as logic
 
@@ -71,6 +69,12 @@ FG_TEXT = "#f8fafc"
 ACCENT = "#3b82f6"
 SUCCESS = "#22c55e"
 ERROR_CLR = "#ef4444"
+BG_UPDATE = "#166534"   # dark-green banner for update notification
+
+# Release notes shorter than this many characters are treated as stubs
+# (e.g. auto-generated "Siehe Commit-Historie …" bodies) — the details
+# dialog then shows extra links to the CHANGELOG and commit history.
+_UPDATE_NOTES_STUB_THRESHOLD = 120
 
 
 # ========================================================
@@ -98,7 +102,7 @@ def resource_path(rel: Path) -> Path:
     return (base / rel).resolve()
 
 
-def get_primary_ipv4() -> Optional[str]:
+def get_primary_ipv4() -> str | None:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("10.255.255.255", 1))
@@ -139,9 +143,11 @@ def is_prerelease_build() -> bool:
 class InstallerApp(tk.Tk):
     """Main installer window with modern dark theme."""
 
-    def __init__(self):
+    def __init__(self, dev_mode: bool = False):
         super().__init__()
-        self.title(f"{DEFAULT_DISPLAY_NAME} – Installer")
+        self.dev_mode = dev_mode
+        self.title(f"{DEFAULT_DISPLAY_NAME} – Installer"
+                   + ("  [DEV MODE]" if dev_mode else ""))
         self.geometry("720x680")
         self.minsize(720, 680)
         self.configure(bg=BG_DARK)
@@ -152,8 +158,8 @@ class InstallerApp(tk.Tk):
         if ico.exists():
             self.iconbitmap(str(ico))
 
-        # Require admin
-        if not is_admin():
+        # Require admin (skip in dev mode — no OS actions will be performed)
+        if not dev_mode and not is_admin():
             if messagebox.askyesno(
                 "Administrator erforderlich",
                 "Dieses Installationsprogramm benötigt "
@@ -181,10 +187,12 @@ class InstallerApp(tk.Tk):
 
         self._load_settings()  # overwrite defaults with saved values
 
-        self.nssm: Optional[Path] = None
-        self.app_exe: Optional[Path] = None
+        self.nssm: Path | None = None
+        self.app_exe: Path | None = None
+        self._update_info: dict | None = None
 
         self._build_ui()
+        self._start_update_check()
 
     # --------------------------------------------------------
     # Registry persistence
@@ -259,6 +267,17 @@ class InstallerApp(tk.Tk):
             font=("Segoe UI", 14, "bold"),
         ).pack(side="left", padx=12, pady=10)
 
+        # Dev-mode banner (always visible when --ui-dev is active)
+        if self.dev_mode:
+            dev_bar = tk.Frame(self, bg="#92400e")
+            dev_bar.pack(fill="x")
+            tk.Label(
+                dev_bar,
+                text="🛠  UI-DEV-MODUS  –  Keine echten Aktionen werden ausgeführt",
+                bg="#92400e", fg="#fef3c7",
+                font=("Segoe UI", 9, "bold"),
+            ).pack(pady=4)
+
         # Pre-release warning banner
         if is_prerelease_build():
             warn = tk.Frame(self, bg="#eab308")
@@ -269,6 +288,10 @@ class InstallerApp(tk.Tk):
                 bg="#eab308", fg="#1e293b",
                 font=("Segoe UI", 9, "bold"),
             ).pack(pady=4)
+
+        # Update notification banner (populated asynchronously when update found)
+        self._update_frame = tk.Frame(self, bg=BG_UPDATE)
+        self._update_frame.pack(fill="x")  # empty — zero effective height until populated
 
         # Body card
         body = tk.Frame(self, bg=BG_CARD, padx=24, pady=18)
@@ -424,6 +447,93 @@ class InstallerApp(tk.Tk):
             self.var_data.set(d)
 
     # --------------------------------------------------------
+    # Async update check
+    # --------------------------------------------------------
+    def _start_update_check(self) -> None:
+        """Launch a background thread to check GitHub for a newer version."""
+        threading.Thread(
+            target=self._update_check_worker, daemon=True).start()
+
+    def _update_check_worker(self) -> None:
+        try:
+            from config import VERSION  # noqa: PLC0415
+            info = logic.fetch_update_info(VERSION)
+        except Exception:
+            return
+        if info.get("update_available"):
+            self.after(0, self._show_update_banner, info)
+
+    def _show_update_banner(self, info: dict) -> None:
+        """Populate the pre-allocated update banner with version info."""
+        self._update_info = info
+        rv = info.get("remote_version", "?")
+        cv = info.get("current_version", "?")
+
+        # Row 1 – version headline (full width)
+        row1 = tk.Frame(self._update_frame, bg=BG_UPDATE)
+        row1.pack(fill="x")
+        tk.Label(
+            row1,
+            text=f"  🔔  Version {rv} verfügbar  (aktuell: {cv})",
+            bg=BG_UPDATE, fg="white",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(side="left", padx=10, pady=(5, 2))
+
+        # Row 2 – data note on the left, action buttons on the right
+        row2 = tk.Frame(self._update_frame, bg=BG_UPDATE)
+        row2.pack(fill="x")
+        tk.Label(
+            row2,
+            text="  Ihre Daten (DB, Backups, Logs) bleiben vollständig erhalten.",
+            bg=BG_UPDATE, fg="#bbf7d0",
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=10, pady=(2, 5))
+        tk.Button(
+            row2, text="Infos & Changelog",
+            font=("Segoe UI", 9),
+            bg="#15803d", fg="white", relief="flat",
+            activebackground="#166534", activeforeground="white",
+            command=lambda: self._on_view_update_details(info),
+        ).pack(side="right", padx=6, pady=(2, 5))
+        # Only shown when a direct installer download is available;
+        # without it the user should use the manual download link in the
+        # details dialog.
+        installer_url = info.get("installer_url")
+        if installer_url or self.dev_mode:
+            tk.Button(
+                row2,
+                text="  Neuen Installer laden & starten  ",
+                font=("Segoe UI", 9, "bold"),
+                bg=SUCCESS, fg="white", relief="flat",
+                activebackground="#16a34a", activeforeground="white",
+                command=lambda: self._on_do_update(info),
+            ).pack(side="right", padx=4, pady=(2, 5))
+
+    def _on_view_update_details(self, info: dict) -> None:
+        UpdateDetailsDialog(self, info)
+
+    def _on_do_update(self, info: dict) -> None:
+        """Download the new installer and launch it; close current installer."""
+        installer_url = info.get("installer_url")
+        if not installer_url:
+            messagebox.showinfo(
+                "Kein Installer-Asset",
+                f"Für Version {info.get('remote_version')} ist noch kein "
+                "Download-Asset auf GitHub verfügbar.\n\n"
+                "Bitte laden Sie die neue Version manuell herunter:\n"
+                f"{info.get('release_url', '')}",
+            )
+            return
+        if self.dev_mode:
+            messagebox.showinfo(
+                "DEV-MODUS",
+                f"DEV: Würde Installer von\n{installer_url}\nherunterladen"
+                " und starten.\nKeine echte Aktion im UI-Dev-Modus.",
+            )
+            return
+        UpdateDownloadWindow(self, installer_url, info)
+
+    # --------------------------------------------------------
     # Install kick-off
     # --------------------------------------------------------
     def _on_install(self):
@@ -448,11 +558,27 @@ class InstallerApp(tk.Tk):
         secret_key = self.var_secret_key.get().strip()
         shortcut = self.var_shortcut.get()
 
+        # Detect re-install scenario and warn the user.
+        if not self.dev_mode and logic.service_exists():
+            if not messagebox.askyesno(
+                "Bereits installiert",
+                f"Der Dienst '{SERVICE_NAME}' ist auf diesem System "
+                "bereits registriert.\n\n"
+                "Die Installation wird den vorhandenen Dienst aktualisieren "
+                "(Neuinstallation über die bestehende Version). "
+                "Ihre Datenbank, Backups und Logs bleiben dabei "
+                "vollständig erhalten.\n\n"
+                "Fortfahren?",
+                icon="warning",
+            ):
+                return
+
         self._save_settings()
         self.btn_install.configure(state="disabled")
         self.btn_uninstall.configure(state="disabled")
         ProgressWindow(self, install_dir, data_dir, port,
-                       display_name, secret_key, shortcut)
+                       display_name, secret_key, shortcut,
+                       dev_mode=self.dev_mode)
 
     # --------------------------------------------------------
     # Uninstall kick-off
@@ -465,6 +591,20 @@ class InstallerApp(tk.Tk):
             messagebox.showerror(
                 "Verzeichnis fehlt",
                 "Bitte das Installationsverzeichnis angeben.")
+            return
+
+        # Detect nothing-to-uninstall scenario.
+        if not self.dev_mode and not logic.service_exists():
+            messagebox.showinfo(
+                "Dienst nicht gefunden",
+                f"Der Dienst '{SERVICE_NAME}' ist auf diesem System "
+                "nicht registriert.\n\n"
+                "Falls das Programm noch installiert ist, prüfen Sie das "
+                "Installationsverzeichnis und stellen Sie sicher, dass Sie "
+                "als Administrator ausführen.\n\n"
+                "Falls das Programm bereits deinstalliert wurde, ist keine "
+                "weitere Aktion notwendig.",
+            )
             return
 
         # Ask for confirmation
@@ -501,7 +641,8 @@ class InstallerApp(tk.Tk):
         UninstallProgressWindow(
             self, install_dir, data_dir,
             keep_data=keep_data,
-            display_name=display_name)
+            display_name=display_name,
+            dev_mode=self.dev_mode)
 
     # --------------------------------------------------------
     # Restore-DB kick-off
@@ -551,7 +692,8 @@ class InstallerApp(tk.Tk):
         self.btn_install.configure(state="disabled")
         self.btn_uninstall.configure(state="disabled")
         self.btn_restore_db.configure(state="disabled")
-        RestoreProgressWindow(self, install_dir, data_dir, source_path)
+        RestoreProgressWindow(self, install_dir, data_dir, source_path,
+                              dev_mode=self.dev_mode)
 
 
 # ========================================================
@@ -569,7 +711,8 @@ class ProgressWindow(tk.Toplevel):
     def __init__(self, parent: InstallerApp,
                  install_dir: Path, data_dir: Path, port: int,
                  display_name: str, secret_key: str,
-                 shortcut: bool = True):
+                 shortcut: bool = True,
+                 dev_mode: bool = False):
         super().__init__(parent)
         self.parent_app = parent
         self.install_dir = install_dir
@@ -578,6 +721,7 @@ class ProgressWindow(tk.Toplevel):
         self.display_name = display_name
         self.secret_key = secret_key
         self.shortcut = shortcut
+        self.dev_mode = dev_mode
 
         self.title("Installation läuft …")
         self.geometry("660x430")
@@ -590,7 +734,7 @@ class ProgressWindow(tk.Toplevel):
         self._bounce_y = 0
         self._bounce_direction = 1
         self._bounce_frame = 0
-        self._avatar_label: Optional[tk.Label] = None
+        self._avatar_label: tk.Label | None = None
         self._avatar_image = None  # keep reference to prevent GC
 
         self._build()
@@ -779,27 +923,35 @@ class ProgressWindow(tk.Toplevel):
                 pct = int((i / total) * 100)
                 self._set_progress(pct, title)
                 self._log(f"[{i+1}/{total}] {title} …")
-                fn()
-                time.sleep(0.15)  # small delay for visual feedback
+                if self.dev_mode:
+                    self._log("   [DEV] Simulation – keine echte Aktion.")
+                    time.sleep(0.4)
+                else:
+                    fn()
+                    time.sleep(0.15)  # small delay for visual feedback
 
             self._set_progress(100, "Installation abgeschlossen ✓")
             self._log("")
             ip = get_primary_ipv4() or "localhost"
             url = f"http://{ip}:{self.port}/"
             self._log("═" * 50)
-            self._log("  Installation erfolgreich!")
-            self._log(f"  Installationsverzeichnis: {self.install_dir}")
-            self._log(f"  Datenverzeichnis:         {self.data_dir}")
-            self._log(f"  Dienst:                   {SERVICE_NAME}")
-            self._log(f"  URL:  {url}")
-            self._log("")
-            self._log("  DNS-Hinweis für IT / Netzwerkadministrator:")
-            self._log(f"    {ip}  →  <wunschname>.ihre-domain.local")
-            self._log("  DNS-Eintrag im internen DNS-Server ergänzen,")
-            self._log("  damit ein Hostname statt der IP-Adresse")
-            self._log("  verwendet werden kann.")
+            if self.dev_mode:
+                self._log("  DEV-MODUS: Simulation abgeschlossen.")
+                self._log("  Keine echten Änderungen vorgenommen.")
+            else:
+                self._log("  Installation erfolgreich!")
+                self._log(f"  Installationsverzeichnis: {self.install_dir}")
+                self._log(f"  Datenverzeichnis:         {self.data_dir}")
+                self._log(f"  Dienst:                   {SERVICE_NAME}")
+                self._log(f"  URL:  {url}")
+                self._log("")
+                self._log("  DNS-Hinweis für IT / Netzwerkadministrator:")
+                self._log(f"    {ip}  →  <wunschname>.ihre-domain.local")
+                self._log("  DNS-Eintrag im internen DNS-Server ergänzen,")
+                self._log("  damit ein Hostname statt der IP-Adresse")
+                self._log("  verwendet werden kann.")
             self._log("═" * 50)
-            self._show_result_buttons(True, url)
+            self._show_result_buttons(True, url if not self.dev_mode else "")
 
         except Exception as ex:
             self._log(f"\n✗ FEHLER: {ex}")
@@ -860,13 +1012,15 @@ class UninstallProgressWindow(tk.Toplevel):
 
     def __init__(self, parent: InstallerApp,
                  install_dir: Path, data_dir: Path,
-                 keep_data: bool, display_name: str = "Reifenmanager"):
+                 keep_data: bool, display_name: str = "Reifenmanager",
+                 dev_mode: bool = False):
         super().__init__(parent)
         self.parent_app = parent
         self.install_dir = install_dir
         self.data_dir = data_dir
         self.keep_data = keep_data
         self.display_name = display_name
+        self.dev_mode = dev_mode
 
         self.title("Deinstallation läuft …")
         self.geometry("660x400")
@@ -984,15 +1138,23 @@ class UninstallProgressWindow(tk.Toplevel):
                 pct = int((i / total) * 100)
                 self._set_progress(pct, title)
                 self._log(f"[{i+1}/{total}] {title} …")
-                fn()
-                time.sleep(0.15)
+                if self.dev_mode:
+                    self._log("   [DEV] Simulation – keine echte Aktion.")
+                    time.sleep(0.4)
+                else:
+                    fn()
+                    time.sleep(0.15)
 
             self._set_progress(100, "Deinstallation abgeschlossen ✓")
             self._log("")
             self._log("═" * 50)
-            self._log("  Deinstallation erfolgreich!")
-            if self.keep_data:
-                self._log(f"  Daten erhalten in: {self.data_dir}")
+            if self.dev_mode:
+                self._log("  DEV-MODUS: Simulation abgeschlossen.")
+                self._log("  Keine echten Änderungen vorgenommen.")
+            else:
+                self._log("  Deinstallation erfolgreich!")
+                if self.keep_data:
+                    self._log(f"  Daten erhalten in: {self.data_dir}")
             self._log("═" * 50)
             self._show_result_buttons(True)
 
@@ -1039,12 +1201,14 @@ class RestoreProgressWindow(tk.Toplevel):
 
     def __init__(self, parent: InstallerApp,
                  install_dir: Path, data_dir: Path,
-                 source_db: Path):
+                 source_db: Path,
+                 dev_mode: bool = False):
         super().__init__(parent)
         self.parent_app = parent
         self.install_dir = install_dir
         self.data_dir = data_dir
         self.source_db = source_db
+        self.dev_mode = dev_mode
 
         self.title("Datenbank wird wiederhergestellt …")
         self.geometry("660x340")
@@ -1143,16 +1307,24 @@ class RestoreProgressWindow(tk.Toplevel):
         try:
             self._set_step(
                 f"Stelle wieder her: {self.source_db.name} …")
-            logic.restore_database(
-                self.source_db,
-                self.data_dir,
-                self.install_dir,
-                log=self._log,
-            )
+            if self.dev_mode:
+                self._log(f"[DEV] Simulation: restore_database({self.source_db.name})")
+                time.sleep(0.8)
+            else:
+                logic.restore_database(
+                    self.source_db,
+                    self.data_dir,
+                    self.install_dir,
+                    log=self._log,
+                )
             self._set_step("Wiederherstellung abgeschlossen ✓")
             self._log("")
             self._log("═" * 50)
-            self._log("  Datenbank erfolgreich wiederhergestellt!")
+            if self.dev_mode:
+                self._log("  DEV-MODUS: Simulation abgeschlossen.")
+                self._log("  Keine echten Änderungen vorgenommen.")
+            else:
+                self._log("  Datenbank erfolgreich wiederhergestellt!")
             self._log("═" * 50)
             self._show_result_buttons(True)
         except (ValueError, Exception) as ex:
@@ -1162,10 +1334,270 @@ class RestoreProgressWindow(tk.Toplevel):
 
 
 # ========================================================
+# UPDATE DETAILS DIALOG
+# ========================================================
+class UpdateDetailsDialog(tk.Toplevel):
+    """Modal dialog showing release notes and a download button."""
+
+    def __init__(self, parent: InstallerApp, info: dict):
+        super().__init__(parent)
+        rv = info.get("remote_version", "?")
+        cv = info.get("current_version", "?")
+        self.title(f"Version {rv} – Änderungsprotokoll")
+        self.geometry("680x540")
+        self.resizable(True, True)
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+
+        # Header
+        hdr = tk.Frame(self, bg=BG_UPDATE, height=48)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Label(
+            hdr, text=f"  Version {rv} verfügbar  (aktuell: {cv})",
+            bg=BG_UPDATE, fg="white",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left", padx=12, pady=10)
+
+        # Data preservation note
+        note = tk.Frame(self, bg="#1e3a5f", pady=6)
+        note.pack(fill="x")
+        tk.Label(
+            note,
+            text="ℹ  Alle Ihre Daten (Datenbank, Backups, Logs, Einstellungen)"
+                 " werden beim Update vollständig beibehalten.",
+            bg="#1e3a5f", fg="#93c5fd",
+            font=("Segoe UI", 9),
+            wraplength=660, justify="left",
+        ).pack(padx=12, pady=2)
+
+        # Release notes – prefer the parsed CHANGELOG section (rich content),
+        # fall back to the GitHub release body (often a stub).
+        raw_notes = (
+            info.get("changelog_section")
+            or info.get("release_notes")
+            or ""
+        ).strip()
+        notes_sparse = len(raw_notes) < _UPDATE_NOTES_STUB_THRESHOLD
+
+        tk.Label(
+            self, text="Änderungsprotokoll:",
+            bg=BG_DARK, fg="#94a3b8", font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=14, pady=(10, 2))
+
+        notes_frame = tk.Frame(self, bg=BG_DARK)
+        notes_frame.pack(fill="both", expand=True, padx=14, pady=(0, 4))
+
+        scrollbar = tk.Scrollbar(notes_frame)
+        scrollbar.pack(side="right", fill="y")
+
+        notes_text = tk.Text(
+            notes_frame, wrap="word",
+            bg="#0f172a", fg="#e2e8f0",
+            font=("Consolas", 9),
+            relief="flat", borderwidth=0,
+            yscrollcommand=scrollbar.set,
+        )
+        notes_text.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=notes_text.yview)
+
+        if raw_notes:
+            notes_text.insert("1.0", raw_notes)
+        else:
+            notes_text.insert("1.0", "(Keine Beschreibung für diese Version verfügbar.)")
+        notes_text.configure(state="disabled")
+
+        # When notes are sparse, add a hint row pointing to external resources.
+        if notes_sparse:
+            hint = tk.Frame(self, bg="#1e293b")
+            hint.pack(fill="x", padx=0, pady=0)
+            tk.Label(
+                hint,
+                text="  Die Release-Beschreibung ist kurz. "
+                     "Vollständige Änderungen:",
+                bg="#1e293b", fg="#94a3b8", font=("Segoe UI", 9),
+            ).pack(side="left", padx=12, pady=4)
+            owner = "tombo92"
+            repo = "TireStorageManager"
+            commits_url = (
+                f"https://github.com/{owner}/{repo}/commits/master"
+            )
+            changelog_url = (
+                f"https://github.com/{owner}/{repo}/blob/master/CHANGELOG.md"
+            )
+            tk.Button(
+                hint, text="Commit-Historie",
+                font=("Segoe UI", 9), bg="#334155", fg="white",
+                relief="flat",
+                command=lambda: open_url(commits_url),
+            ).pack(side="right", padx=4, pady=3)
+            tk.Button(
+                hint, text="CHANGELOG.md",
+                font=("Segoe UI", 9), bg="#334155", fg="white",
+                relief="flat",
+                command=lambda: open_url(changelog_url),
+            ).pack(side="right", padx=4, pady=3)
+
+        # Buttons
+        bar = tk.Frame(self, bg=BG_DARK)
+        bar.pack(fill="x", padx=14, pady=(4, 14))
+
+        release_url = info.get("release_url")
+        if release_url:
+            tk.Button(
+                bar, text="  GitHub Release öffnen  ",
+                font=("Segoe UI", 9),
+                bg=ACCENT, fg="white", relief="flat",
+                command=lambda: open_url(release_url),
+            ).pack(side="left")
+
+        installer_url = info.get("installer_url")
+        if installer_url or parent.dev_mode:
+            tk.Button(
+                bar, text="  Neuen Installer laden & starten  ",
+                font=("Segoe UI", 10, "bold"),
+                bg=SUCCESS, fg="white", relief="flat",
+                command=lambda: [
+                    self.destroy(),
+                    parent._on_do_update(info),
+                ],
+            ).pack(side="right", padx=(8, 0))
+
+        tk.Button(
+            bar, text="  Schließen  ",
+            font=("Segoe UI", 9),
+            bg="#64748b", fg="white", relief="flat",
+            command=self.destroy,
+        ).pack(side="right")
+
+
+# ========================================================
+# UPDATE DOWNLOAD WINDOW
+# ========================================================
+class UpdateDownloadWindow(tk.Toplevel):
+    """Modal window that downloads the new installer EXE and launches it."""
+
+    def __init__(self, parent: InstallerApp, url: str, info: dict):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.url = url
+        self.info = info
+
+        rv = info.get("remote_version", "?")
+        self.title(f"Version {rv} wird heruntergeladen …")
+        self.geometry("520x220")
+        self.resizable(False, False)
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)  # block close
+
+        self._build()
+        self._start_download()
+
+    def _build(self):
+        rv = self.info.get("remote_version", "?")
+        tk.Label(
+            self, text=f"Neue Installer-Version {rv} wird heruntergeladen …",
+            bg=BG_DARK, fg=FG_TEXT,
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", padx=20, pady=(18, 6))
+
+        tk.Label(
+            self,
+            text="Ihre Daten (DB, Backups, Logs) werden nicht verändert.",
+            bg=BG_DARK, fg="#94a3b8", font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=20)
+
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "dl.Horizontal.TProgressbar",
+            troughcolor=BG_CARD, background=SUCCESS, thickness=18,
+        )
+        self.progress = ttk.Progressbar(
+            self, style="dl.Horizontal.TProgressbar",
+            orient="horizontal", length=470,
+            mode="indeterminate",
+        )
+        self.progress.pack(padx=20, pady=(12, 6))
+        self.progress.start(12)
+
+        self.status_label = tk.Label(
+            self, text="Verbindung wird hergestellt …",
+            bg=BG_DARK, fg="#94a3b8", font=("Segoe UI", 9),
+        )
+        self.status_label.pack(anchor="w", padx=20)
+
+        self.btn_frame = tk.Frame(self, bg=BG_DARK)
+        self.btn_frame.pack(fill="x", padx=20, pady=(10, 14))
+
+    def _set_status(self, text: str):
+        self.after(0, lambda: self.status_label.configure(text=text))
+
+    def _start_download(self):
+        threading.Thread(target=self._worker, daemon=True).start()
+
+    def _worker(self):
+        import tempfile
+        rv = self.info.get("remote_version", "new")
+        dest = Path(tempfile.gettempdir()) / f"TSM-Installer-{rv}.exe"
+
+        def _progress(received: int, total: int) -> None:
+            if total > 0:
+                mb_r = received / 1_048_576
+                mb_t = total / 1_048_576
+                self._set_status(
+                    f"Heruntergeladen: {mb_r:.1f} MB / {mb_t:.1f} MB")
+            else:
+                mb_r = received / 1_048_576
+                self._set_status(f"Heruntergeladen: {mb_r:.1f} MB …")
+
+        self._set_status("Herunterladen …")
+        ok = logic.download_file(self.url, dest, on_progress=_progress)
+
+        if not ok:
+            self.after(0, self._on_download_failed)
+            return
+
+        self._set_status(f"Download abgeschlossen: {dest.name}")
+        self.after(0, self._on_download_done, dest)
+
+    def _on_download_failed(self):
+        self.progress.stop()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.status_label.configure(
+            text="Download fehlgeschlagen – bitte manuell herunterladen.")
+        release_url = self.info.get("release_url", "")
+        if release_url:
+            tk.Button(
+                self.btn_frame, text="  GitHub Release öffnen  ",
+                font=("Segoe UI", 9),
+                bg=ACCENT, fg="white", relief="flat",
+                command=lambda: open_url(release_url),
+            ).pack(side="left")
+        tk.Button(
+            self.btn_frame, text="  Schließen  ",
+            font=("Segoe UI", 9),
+            bg="#64748b", fg="white", relief="flat",
+            command=self.destroy,
+        ).pack(side="right")
+
+    def _on_download_done(self, dest: Path):
+        self.progress.stop()
+        self.status_label.configure(
+            text="Installer wird gestartet – dieses Fenster schließt sich.")
+        # Launch new installer elevated, then close the current one.
+        open_url(str(dest))   # ShellExecuteW "open" triggers UAC elevation
+        self.after(1500, self.parent_app.destroy)
+
+
+# ========================================================
 # ENTRY POINT
 # ========================================================
 def _run_headless(args: argparse.Namespace) -> int:
-    """Install or uninstall without a GUI.
+    """Install, uninstall, or check for updates without a GUI.
 
     Returns 0 on success, 1 on failure.
     Used by CI smoke tests to verify the compiled EXE end-to-end.
@@ -1175,6 +1607,16 @@ def _run_headless(args: argparse.Namespace) -> int:
     def log(msg: str) -> None:
         print(msg, flush=True)
         log_lines.append(msg)
+
+    # check-update does not need install_dir / data_dir
+    if args.action == "check-update":
+        try:
+            from config import VERSION  # type: ignore[import]
+        except Exception:
+            VERSION = "0.0.0"
+        info = logic.fetch_update_info(VERSION)
+        print(json.dumps(info, ensure_ascii=False), flush=True)
+        return 0
 
     install_dir = Path(args.install_dir).resolve()
     data_dir = Path(args.data_dir).resolve()
@@ -1266,7 +1708,16 @@ def main():
         help="Run without GUI (for CI smoke tests).",
     )
     parser.add_argument(
-        "--action", choices=["install", "uninstall", "restore-db"],
+        "--ui-dev", dest="ui_dev", action="store_true",
+        help=(
+            "Launch the GUI in UI-dev mode: all install/uninstall steps are "
+            "simulated (no real OS actions).  Use to preview the full UI flow "
+            "without administrator rights or a real installation target."
+        ),
+    )
+    parser.add_argument(
+        "--action",
+        choices=["install", "uninstall", "restore-db", "check-update"],
         help="Action to perform in headless mode.",
     )
     parser.add_argument(
@@ -1316,7 +1767,7 @@ def main():
     if args.headless:
         if not args.action:
             parser.error(
-                "--headless requires --action install|uninstall|restore-db")
+                "--headless requires --action install|uninstall|restore-db|check-update")
         if args.action in ("install", "uninstall"):
             if not args.install_dir or not args.data_dir:
                 parser.error(
@@ -1329,14 +1780,11 @@ def main():
                 parser.error(
                     "restore-db requires --source-db")
         sys.exit(_run_headless(args))
-        return
 
     # Normal GUI mode
-    app = InstallerApp()
+    app = InstallerApp(dev_mode=getattr(args, "ui_dev", False))
     app.mainloop()
 
 
 if __name__ == "__main__":
     main()
-
-

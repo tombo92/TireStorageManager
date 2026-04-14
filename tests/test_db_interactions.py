@@ -207,7 +207,7 @@ class TestSettingsDb:
 
     def test_only_one_settings_row_in_practice(self, db_session):
         """App always uses get_or_create pattern — only 1 row."""
-        from tsm.routes import get_or_create_settings
+        from tsm.db import get_or_create_settings
         s1 = get_or_create_settings(db_session)
         s2 = get_or_create_settings(db_session)
         assert s1.id == s2.id
