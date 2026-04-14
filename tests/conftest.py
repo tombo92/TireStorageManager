@@ -21,10 +21,10 @@ _test_data_dir = tempfile.mkdtemp(prefix="tsm_test_")
 os.environ["TSM_DATA_DIR"] = _test_data_dir
 os.environ.setdefault("TSM_SECRET_KEY", "test-secret-key")
 
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy import create_engine, event  # noqa: E402
+from sqlalchemy.orm import sessionmaker, scoped_session  # noqa: E402
 
-from tsm.models import Base, WheelSet, Settings
+from tsm.models import Base, WheelSet, Settings  # noqa: E402
 
 
 @pytest.fixture(scope="function")
@@ -44,6 +44,10 @@ def db_engine():
 
     @event.listens_for(eng, "connect")
     def _set_pragma(dbapi_conn, _rec):
+        dbapi_conn.create_function(
+            "lower", 1,
+            lambda s: s.lower() if isinstance(s, str) else s
+        )
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL;")
         cur.execute("PRAGMA foreign_keys=ON;")

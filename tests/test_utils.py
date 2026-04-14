@@ -5,7 +5,6 @@ from tsm.utils import get_csrf_token, validate_csrf, resource_path
 class TestCsrf:
     def test_token_generated(self, app):
         with app.test_request_context():
-            from flask import session
             token = get_csrf_token()
             assert token is not None
             assert len(token) > 10

@@ -205,63 +205,48 @@
     // Auto-Witze
     'Warum sind Rennfahrer so cool? Weil sie immer in der Überholspur sind!',
     'Was sagt ein Auto zu seinem Fahrer? Du bringst mich zum Überkochen!',
-    'Warum hat der Sportwagen immer Hunger? Weil er ständig aufs Gas drückt!',
+    'Was ist das wichtigste bei einer Autonummer? Das die Sitze sauber bleiben!',
     'Was macht ein Auto, wenn es dich nicht mag? Es zeigt dir den Auspuff!',
-    'Warum fährt der Rennfahrer nie rückwärts? Weil er Angst vor dem Rückwärtsgang hat!',
+    'Was ist gelb und liegt im Straßengraben? Ein totes Postauto.',
     'Was sagt ein Auto, wenn es müde ist? Ich möchte ins Bett, nicht zur Tankstelle!',
-    'Warum wurde das Auto rot? Weil es den Gurt sah!',
-    'Was ist das Lieblingsessen eines Autos? Parkplatz!',
-    'Warum wurde das Auto krank? Es hatte einen Auspuff!',
+    'Ich bin gegen Rasen auf der Autobahn: Wer soll das denn alles mähen?',
+    'Was ist das Lieblingsessen eines Autos? Parkplätzchen!',
+    'Mit welchem Auto ist man besonders langsam unterwegs? Mit einem Lahm-Borghini.',
     'Was sagt ein Auto, wenn es durstig ist? Ich brauche eine Tankfüllung!',
     'Was macht ein Auto im Fitnessstudio? Es pumpt seine Reifen auf!',
     'Was sagt ein Auto, wenn es verloren geht? Ich brauche ein GPS!',
-    'Warum sind Autos schlechte Schauspieler? Weil sie immer überfahren!',
+    'Was ist der Unterschied zwischen einem Auto und einer Rolle Klopapier? Das Auto kann man gebraucht kaufen.',
     'Warum sind Autos gute Tänzer? Weil sie immer im Rhythmus der Straße tanzen!',
-    'Was ist der Lieblingsfilm eines Autos? \'Fast & Furious\'!',
-    'Warum gehen Autos nie aus? Weil sie immer einen Schlüssel haben!',
-    'Was macht ein Auto, wenn es sich langweilt? Es dreht eine Runde!',
-    'Was sagt ein Auto, wenn es zu schnell fährt? Brems dich!',
-    'Warum sind Autos so laut? Weil sie immer hupen müssen!',
+    'Der Geisterfahrer zum Polizisten: "Was heißt hier falsche Richtung? Sie wissen doch gar nicht wohin ich will!"',
+    'Polizeihauptwachtmeister Schrullig verwarnt den sündigen Autofahrer: "Ich hoffe, daß ich Sie in Zukunft nicht mehr beim Rasen erwische!" - "Ja. das hoffe ich auch", meint der Autofahrer.',
+    'Polizeikontrolle. Der stockbesoffene Fahrer lallt: "Ich hab’ nur Tee getrunken!" Darauf der Polizist: "Dann haben Sie aber mindestens drei Komma null Kamille!"',
+    '"Zwanzig Euro gebührenpflichtige Verwarnung", sagt der Polizeibeamte zum Metzgermeister, "oder darf\'s ein wenig mehr sein?"',
+    '"Haben Sie das Schild mit der Geschwindigkeitsbegrenzung denn nicht gelesen?" - "Was denn, auch noch lesen bei dem Tempo?',
     'Was ist das Lieblingslied eines Autos? \'Autobahn\' von Kraftwerk!',
     'Was macht ein Auto, wenn es wütend ist? Es lässt Dampf ab!',
-    'Warum sind Autos so schlau? Weil sie immer den Weg wissen!',
-    'Was sagt ein Auto, wenn es schmutzig ist? Wasch mich!',
-    'Was macht ein Auto, wenn es nicht starten will? Es macht eine Pause!',
-    'Was sagt ein Auto, wenn es alt wird? Ich brauche ein Update!',
+    'Zwei Lehrlinge beim Autotest. "Scheinwerfer?" Antwortet der andere "Geht!" - "Rücklicht?" - "Geht!" - "Blinker?" - "Geht! Geht nicht! Geht! Geht nicht!"',
+    'Kommst du mit zu Suki gucken ob Hon da ist? Wenn nicht fahrn wir mit zu Bishi.',
+    'Verdammt, da hat gerade jemand unser Auto geklaut! - "Mist, konntest du ihn erkennen?" "Nein, aber ich habe mir das Nummernschild gemerkt"',
+    'Bei welchem Tier ist das Arschloch vorne? - Bei der Autoschlange',
     'Warum sind Autos immer in Eile? Weil sie immer auf der Überholspur sind!',
-    'Was ist der Lieblingssport eines Autos? Drag Racing!',
-    'Warum gehen Autos nie zur Schule? Weil sie schon alles über die Straße wissen!',
-    'Was sagt ein Auto, wenn es glücklich ist? Lass uns eine Spritztour machen!',
-    'Was macht ein Auto, wenn es dich liebt? Es lässt dich fahren!',
-    'Warum liebt das Auto das Radio? Weil es seine Lieblingsmusik immer auf der Fahrt spielt!',
-    'Warum ist ein Auto kein guter Koch? Weil es alles aufs Gas stellt!',
-    'Was sagt ein Auto, wenn es friert? Schalte die Heizung ein!',
+    'Was haben 365 benutze Kondome und ein Autoreifen gemeinsam? - It was a Good Year',
+    'Unterhalten sich zwei Kinder im Waisenhaus: \"Wenn ich später sterbe, will ich friedlich sterben wie einst mein Großvater im Schlafe....und nicht schreiend, wie meine Eltern auf dem Rücksitz.\"',
+    'Schimpft der Polizist: \"Haben sie die rote Ampel nicht gesehen?\" Antwortet der Autofahrer: \"Die Ampel schon, aber sie nicht.\"',
+    'Ein Autofahrer hört im Radio: \"Vorsichtig! Auf der A1 kommt ihnen ein Geisterfahrer entgegen.\" Murmelt der Fahrer vor sich hin: \"Einer? Das sind Hunderte!\"',
+    'Warum geht das Einparken mit zunehmendem Alter schlechter? Weil das Gehör nachlässt.',
+    'Autofahrer zum Tankwart: \"Kontrollieren Sie bitte auch die Reifen.\" Tankwart: \"Eins, zwei, drei, vier - alle da!\"',
+    'Welche Zeit ist es, wenn ein Elefant auf einem Auto sitzt? - Zeit für ein neues Auto!',
     'Warum sind Autos wie Babys? Wenn sie nicht aufhören zu heulen, stimmt etwas nicht!',
-    'Was sagt ein Auto mit Plattfuß? Ich fühle mich runtergefahren!',
-    'Was macht ein Auto im Schwimmbad? Es macht den Rückwärtssalto!',
-    'Warum hat das Auto einen Stern auf der Motorhaube? Weil es immer im Rampenlicht steht!',
-    'Was sagt ein Auto, wenn es neue Reifen braucht? Ich fühle mich abgenutzt!',
-    'Was macht ein Auto beim Friseur? Es lässt sich die Reifen schneiden!',
-    'Warum werden Autos nie alt? Weil sie immer aufgefrischt werden!',
-    'Was sagt ein Auto, wenn es einsam ist? Nehmen wir noch jemanden mit!',
+    'Was ist orange und fährt Auto?- Eine Car-otte.',
+    'Was ist der Plural von Auto?  - Stau.',
+    'Alle Kinder fliehen vor dem Regen ins Auto, außer Dario, der hat nen Cabrio.',
+    'Ich habe mir endlich so eine Dachbox für das Auto geholt. Echt praktisch, muss man sagen. Die Kinder hört man kaum noch.',
+    'Was macht ein Informatiker, wenn sein Auto nicht anspringt? - geht aus dem Auto raus und noch mal rein.',
+    'Ein bekannter Rennfahrer ist heute gestorben. Er war wohl etwas neben der Spur.',
+    'Wie nennt man ein Auto für Leute ohne Beine?- Geh-Klasse.',
     'Warum ist ein Auto kein guter Zuhörer? Weil es immer über alles hinweggeht!',
-    'Was sagt ein Auto, wenn es sich verfährt? Dreh um!',
-    'Warum sind Autos schlechte Sänger? Weil sie immer den Ton verfehlen!',
-    'Was sagt ein Auto, wenn es den Führerschein sieht? Das ist mein Bild!',
-    'Was macht ein Auto im Park? Es lässt die Reifen baumeln!',
-    'Warum sind Autos keine guten Gärtner? Weil sie alles platt machen!',
-    'Was sagt ein Auto, wenn es müde ist? Schalte mich aus!',
-    'Was macht ein Auto auf einer Party? Es dreht auf!',
-    'Warum sind Autos gute Seefahrer? Weil sie immer den Kurs halten!',
-    'Was sagt ein Auto, wenn es sich freut? Lass uns losfahren!',
-    'Warum sind Autos keine guten Versteckspieler? Weil sie immer gefunden werden!',
-    'Was sagt ein Auto, wenn es durstig ist? Füll mich auf!',
-    'Was macht ein Auto im Kino? Es schaut sich einen Drive-in-Film an!',
-    'Warum sind Autos schlechte Schläfer? Weil sie immer auf Touren sind!',
-    'Was sagt ein Auto, wenn es gereinigt wird? Ah, das fühlt sich gut an!',
-    'Was macht ein Auto auf dem Golfplatz? Es macht einen Drive!',
-    'Warum sind Autos keine guten Tänzer? Weil sie immer auf dem Parkplatz stehen!',
-    'Was sagt ein Auto, wenn es verkauft wird? Vergiss mich nicht!'
+    'Hat das Apple Auto auch Windows?',
+    'Egal wie viele CDs du hast, Carl Benz hat Mercedes.'
   ];
 
   const ANIM_CLASSES = ['bounce', 'float', 'spin'];
@@ -502,5 +487,34 @@
           });
       });
     }
+  });
+})();
+
+// =========================================================
+//  Wheelset list — live search (debounced)
+// =========================================================
+(function () {
+  'use strict';
+
+  var DEBOUNCE_MS = 400;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var input = document.getElementById('wl-search-input');
+    var form  = document.getElementById('wl-filter-form');
+    if (!input || !form) return;
+
+    var timer = null;
+
+    input.addEventListener('input', function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        form.submit();
+      }, DEBOUNCE_MS);
+    });
+
+    // Clear the pending timer if the user submits manually (Enter / button)
+    form.addEventListener('submit', function () {
+      clearTimeout(timer);
+    });
   });
 })();

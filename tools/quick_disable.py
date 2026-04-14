@@ -27,14 +27,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tsm.db import SessionLocal
-from tsm.positions import (disable_position, enable_position,
-                           get_disabled_positions, is_valid_position,
-                           position_sort_key)
+from tsm.db import SessionLocal  # noqa: E402
+from tsm.positions import (  # noqa: E402
+    disable_position, enable_position,
+    get_disabled_positions, is_valid_position,
+    position_sort_key,
+)
 
 # ========================================================
 # MAIN
 # ========================================================
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Manage disabled storage positions.")
@@ -82,8 +85,10 @@ def main() -> int:
             return 0
 
         return 0
+
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
