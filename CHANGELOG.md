@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] – 2026-07-15
+
 ### Fixed
 - **Installer crashed on launch** — an invalid 8-digit hex colour (`#ffffffaa`) used for the version label was rejected by Tkinter (`invalid color name`), crashing `TSM-Installer.exe` immediately for every user before the window even appeared. Replaced with a solid colour. Added a static regression test scanning for alpha-hex colour literals.
 
