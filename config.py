@@ -8,6 +8,9 @@ App Configurations
 Paths can be overridden via environment variables so that the
 PyInstaller EXE + Windows Service can use a separate data directory:
   TSM_DATA_DIR  →  base for db/ and backups/
+
+Note: touched to trigger a release build after the installer crash fix
+(invalid Tkinter colour) — see CHANGELOG.md [Unreleased].
 """
 # ========================================================
 # IMPORTS
