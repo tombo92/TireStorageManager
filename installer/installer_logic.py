@@ -288,6 +288,38 @@ def deploy_app_exe(
     return target
 
 
+def pre_upgrade_backup(
+    data_dir: Path,
+    log: Callable[[str], None] | None = None,
+) -> Path | None:
+    """Create a safety backup of the existing DB before an upgrade.
+
+    Returns the backup path if a backup was created, or ``None`` if no
+    existing DB was found (fresh install — nothing to protect).
+
+    The backup is named ``pre_upgrade_<timestamp>.db`` and stored in the
+    data directory's ``backups/`` folder.  This is distinct from the
+    regular daily backups and is never rotated — the user can always
+    revert to the exact state before the upgrade.
+    """
+    db_path = data_dir / "db" / "wheel_storage.db"
+    if not db_path.exists():
+        if log:
+            log("   ℹ Keine bestehende Datenbank — kein Upgrade-Backup nötig.")
+        return None
+
+    backup_dir = data_dir / "backups"
+    ensure_dir(backup_dir)
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = backup_dir / f"pre_upgrade_{ts}.db"
+    shutil.copy2(db_path, backup_path)
+    if log:
+        log(f"   ✓ Upgrade-Sicherung erstellt: {backup_path.name}")
+        log(f"     ({db_path.stat().st_size / 1024:.0f} KB)")
+    return backup_path
+
+
 def seed_database(
     seed_db: Path,
     data_dir: Path,

@@ -130,6 +130,59 @@ class TestDeployAppExe:
                 tmp_path / "missing.exe", tmp_path / "install")
 
 
+class TestPreUpgradeBackup:
+    """Verify the safety backup created before overwriting an existing DB."""
+
+    def test_creates_backup_when_db_exists(self, tmp_path: Path):
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        (data / "db" / "wheel_storage.db").write_bytes(b"CUSTOMER_DATA")
+        msgs: list[str] = []
+        result = logic.pre_upgrade_backup(data, log=msgs.append)
+        assert result is not None
+        assert result.exists()
+        assert result.read_bytes() == b"CUSTOMER_DATA"
+        assert result.name.startswith("pre_upgrade_")
+        assert result.suffix == ".db"
+        assert result.parent == data / "backups"
+        assert any("Upgrade-Sicherung" in m for m in msgs)
+
+    def test_returns_none_when_no_db(self, tmp_path: Path):
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        msgs: list[str] = []
+        result = logic.pre_upgrade_backup(data, log=msgs.append)
+        assert result is None
+        assert any("kein Upgrade-Backup" in m for m in msgs)
+
+    def test_preserves_original_db_intact(self, tmp_path: Path):
+        """The original DB must NOT be modified or moved."""
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        db = data / "db" / "wheel_storage.db"
+        db.write_bytes(b"ORIGINAL")
+        logic.pre_upgrade_backup(data)
+        assert db.exists()
+        assert db.read_bytes() == b"ORIGINAL"
+
+    def test_multiple_backups_coexist(self, tmp_path: Path):
+        """Two rapid backups must not overwrite each other."""
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        (data / "db" / "wheel_storage.db").write_bytes(b"V1")
+        b1 = logic.pre_upgrade_backup(data)
+
+        # Simulate a content change between upgrades
+        (data / "db" / "wheel_storage.db").write_bytes(b"V2")
+        import time
+        time.sleep(1.1)  # ensure different timestamp
+        b2 = logic.pre_upgrade_backup(data)
+
+        assert b1 != b2
+        assert b1.read_bytes() == b"V1"
+        assert b2.read_bytes() == b"V2"
+
+
 class TestSeedDatabase:
     def test_seeds_when_no_db(self, tmp_path: Path):
         seed = tmp_path / "seed.db"
@@ -884,6 +937,8 @@ class TestFullInstallSequence:
             payload / "nssm.exe", install, log=log.append)
         app_exe2 = logic.deploy_app_exe(
             payload / "TireStorageManager.exe", install, log=log.append)
+        # Pre-upgrade backup must capture user data before touching DB
+        backup_path = logic.pre_upgrade_backup(data, log=log.append)
         # seed_database must skip because DB already exists
         logic.seed_database(
             payload / "db" / "wheel_storage.db", data, log=log.append)
@@ -897,6 +952,16 @@ class TestFullInstallSequence:
         # Data must be untouched — seed must not overwrite user data.
         assert db_path.read_bytes() == b"USERDATA", (
             "reinstall must not overwrite existing user database"
+        )
+        # Pre-upgrade backup must contain the user data
+        assert backup_path is not None, (
+            "pre_upgrade_backup must create a backup when DB exists"
+        )
+        assert backup_path.read_bytes() == b"USERDATA", (
+            "pre-upgrade backup must contain the exact pre-upgrade data"
+        )
+        assert backup_path.name.startswith("pre_upgrade_"), (
+            "pre-upgrade backup must be clearly named"
         )
         # seed_database logged "existiert bereits"
         seed_msgs = [m for m in log if "existiert" in m]

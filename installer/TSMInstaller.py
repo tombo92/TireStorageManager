@@ -44,6 +44,7 @@ import winreg
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from installer import installer_i18n as help_i18n
 from installer import installer_logic as logic
 
 # ========================================================
@@ -184,6 +185,7 @@ class InstallerApp(tk.Tk):
         self.var_display_name = tk.StringVar(value=DEFAULT_DISPLAY_NAME)
         self.var_secret_key = tk.StringVar(value="")
         self.var_shortcut = tk.BooleanVar(value=True)
+        self.var_help_lang = tk.StringVar(value=help_i18n.DEFAULT_LANG)
 
         self._load_settings()  # overwrite defaults with saved values
 
@@ -224,6 +226,7 @@ class InstallerApp(tk.Tk):
                 _str("DataDir",      self.var_data)
                 _str("Port",         self.var_port)
                 _str("DisplayName",  self.var_display_name)
+                _str("HelpLang",     self.var_help_lang)
                 # secret key intentionally NOT loaded for security
                 _bool("Shortcut",   self.var_shortcut)
         except FileNotFoundError:
@@ -249,6 +252,9 @@ class InstallerApp(tk.Tk):
                 winreg.SetValueEx(key, "Shortcut",    0,
                                   winreg.REG_DWORD,
                                   int(self.var_shortcut.get()))
+                winreg.SetValueEx(key, "HelpLang",    0,
+                                  winreg.REG_SZ,
+                                  self.var_help_lang.get())
                 # secret key intentionally NOT saved for security
         except OSError:
             pass  # silently ignore — registry write failed
@@ -266,6 +272,21 @@ class InstallerApp(tk.Tk):
             bg=ACCENT, fg="white",
             font=("Segoe UI", 14, "bold"),
         ).pack(side="left", padx=12, pady=10)
+        try:
+            from config import VERSION as _app_version
+        except ImportError:
+            _app_version = "?"
+        tk.Label(
+            hdr, text=f"v{_app_version}",
+            bg=ACCENT, fg="#ffffffaa",
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 8), pady=10)
+        tk.Button(
+            hdr, text="  ❔ Hilfe  ",
+            font=("Segoe UI", 9), relief="flat",
+            bg="#2563eb", fg="white",
+            command=self._on_help,
+        ).pack(side="right", padx=12, pady=10)
 
         # Dev-mode banner (always visible when --ui-dev is active)
         if self.dev_mode:
@@ -445,6 +466,10 @@ class InstallerApp(tk.Tk):
             initialdir=self.var_data.get(), mustexist=False)
         if d:
             self.var_data.set(d)
+
+    def _on_help(self):
+        """Open the verbose help dialog (language-selectable)."""
+        HelpWindow(self)
 
     # --------------------------------------------------------
     # Async update check
@@ -907,6 +932,7 @@ class ProgressWindow(tk.Toplevel):
             ("Verzeichnisse anlegen",         self._step_dirs),
             ("NSSM bereitstellen",            self._step_nssm),
             ("Anwendung kopieren",            self._step_app),
+            ("Upgrade-Sicherung erstellen",   self._step_pre_upgrade_backup),
             ("Datenbank vorbereiten",         self._step_db),
             ("Firewall-Regel erstellen",      self._step_firewall),
             ("Windows-Dienst installieren",   self._step_service),
@@ -972,6 +998,9 @@ class ProgressWindow(tk.Toplevel):
         src = resource_path(PAYLOAD_APP)
         target = logic.deploy_app_exe(src, self.install_dir, log=self._log)
         self.parent_app.app_exe = target
+
+    def _step_pre_upgrade_backup(self):
+        logic.pre_upgrade_backup(self.data_dir, log=self._log)
 
     def _step_db(self):
         seed = resource_path(PAYLOAD_SEED_DB)
@@ -1331,6 +1360,121 @@ class RestoreProgressWindow(tk.Toplevel):
             self._log(f"\n✗ FEHLER: {ex}")
             self._set_step("Wiederherstellung fehlgeschlagen")
             self._show_result_buttons(False)
+
+
+# ========================================================
+# HELP WINDOW (verbose, language-selectable)
+# ========================================================
+class HelpWindow(tk.Toplevel):
+    """Modal dialog explaining every installer field and step in detail.
+
+    Content lives in installer_i18n.py (pure Python, no Tkinter) so it can
+    be unit-tested without a display. The language toggle re-renders the
+    Text widget in place; the chosen language is persisted to the registry
+    via the parent InstallerApp so it is remembered next time.
+    """
+
+    def __init__(self, parent: InstallerApp):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.lang = help_i18n.resolve_lang(parent.var_help_lang.get())
+
+        self.title("Hilfe / Help")
+        self.geometry("720x600")
+        self.minsize(560, 400)
+        self.resizable(True, True)
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+
+        # Header with language toggle
+        hdr = tk.Frame(self, bg=ACCENT, height=48)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Label(
+            hdr, text="  ❔  Hilfe – Installationsschritte im Detail",
+            bg=ACCENT, fg="white",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left", padx=12, pady=10)
+
+        lang_bar = tk.Frame(hdr, bg=ACCENT)
+        lang_bar.pack(side="right", padx=10)
+        self._lang_buttons: dict[str, tk.Button] = {}
+        for code in help_i18n.SUPPORTED_LANGS:
+            btn = tk.Button(
+                lang_bar, text=help_i18n.LANG_LABELS[code],
+                font=("Segoe UI", 9), relief="flat",
+                command=lambda c=code: self._switch_lang(c),
+            )
+            btn.pack(side="left", padx=2)
+            self._lang_buttons[code] = btn
+
+        # Scrollable text content
+        body_frame = tk.Frame(self, bg=BG_DARK)
+        body_frame.pack(fill="both", expand=True, padx=14, pady=(10, 4))
+
+        scrollbar = tk.Scrollbar(body_frame)
+        scrollbar.pack(side="right", fill="y")
+
+        self.text = tk.Text(
+            body_frame, wrap="word",
+            bg="#0f172a", fg="#e2e8f0",
+            font=("Segoe UI", 10),
+            relief="flat", borderwidth=0,
+            yscrollcommand=scrollbar.set,
+            padx=10, pady=8,
+        )
+        self.text.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self.text.yview)
+
+        self.text.tag_configure(
+            "heading", font=("Segoe UI", 12, "bold"), foreground="#60a5fa",
+            spacing_before=14, spacing_after=6,
+        )
+        self.text.tag_configure(
+            "item_title", font=("Segoe UI", 10, "bold"), foreground="#f8fafc",
+            spacing_before=6,
+        )
+        self.text.tag_configure(
+            "item_body", font=("Segoe UI", 10), foreground="#cbd5e1",
+            spacing_after=4,
+        )
+
+        # Close button
+        bar = tk.Frame(self, bg=BG_DARK)
+        bar.pack(fill="x", padx=14, pady=(4, 14))
+        tk.Button(
+            bar, text="  Schließen  ",
+            font=("Segoe UI", 9),
+            bg="#64748b", fg="white", relief="flat",
+            command=self.destroy,
+        ).pack(side="right")
+
+        self._render()
+
+    def _switch_lang(self, code: str) -> None:
+        self.lang = help_i18n.resolve_lang(code)
+        self.parent_app.var_help_lang.set(self.lang)
+        self._render()
+
+    def _render(self) -> None:
+        """(Re)populate the text widget with content for self.lang."""
+        for code, btn in self._lang_buttons.items():
+            active = code == self.lang
+            btn.configure(
+                bg="white" if active else "#2563eb",
+                fg=ACCENT if active else "white",
+            )
+
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        for section in help_i18n.get_help_sections(self.lang):
+            self.text.insert("end", section["heading"] + "\n", "heading")
+            for item in section["items"]:
+                self.text.insert("end", item["title"] + "\n", "item_title")
+                self.text.insert("end", item["body"] + "\n", "item_body")
+        self.text.configure(state="disabled")
+        self.text.see("1.0")
 
 
 # ========================================================
