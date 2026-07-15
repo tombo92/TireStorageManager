@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tire-storage-manager"
-version = "1.7.0"
+version = "1.8.0"
 description = "Lightweight tire/wheel storage management web app for workshops"
 requires-python = ">=3.12"
 dependencies = [
