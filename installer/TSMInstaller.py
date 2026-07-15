@@ -278,7 +278,7 @@ class InstallerApp(tk.Tk):
             _app_version = "?"
         tk.Label(
             hdr, text=f"v{_app_version}",
-            bg=ACCENT, fg="#ffffffaa",
+            bg=ACCENT, fg="#bfdbfe",
             font=("Segoe UI", 9),
         ).pack(side="left", padx=(0, 8), pady=10)
         tk.Button(
