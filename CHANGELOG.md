@@ -18,6 +18,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Smoke and Release Acceptance Test coverage extended** — language selector, tire details toggle, and seasonal tracking toggle are now exercised in both the EXE smoke test and the RAT (Phase 1b-ext and Phase 1c).
+- **End-to-end schema-migration test against the real `_migrate()`** — a fully old, populated database (old `settings` + old `wheel_sets` schema with data) is now migrated by the production `tsm.db._migrate()` and every current column is asserted present while existing rows are verified intact. This directly validates the customer upgrade scenario (an existing database created by an older installer is used automatically without data loss).
+- **Verbose help dialog with language toggle (DE/EN)** — every installer field and install/uninstall step is explained in detail. Content lives in `installer_i18n.py` (pure Python, no Tkinter) so it can be unit-tested on any platform. The help language choice is persisted to the Registry.
+- **Pre-upgrade safety backup** — before any upgrade, the installer creates a timestamped copy of the existing database (`pre_upgrade_<timestamp>.db`) in the backups folder. This backup is distinct from regular daily backups and is never rotated — the user can always revert to the exact state before the upgrade.
+- **Installer version display** — the title bar shows the application version (`config.VERSION`), making it easy to identify which installer version is running. The version is kept in sync automatically by CI.
+- **18 new tests** — covering the help content catalogue (all sections, both languages, fallback), pre-upgrade backup (creation, preservation, coexistence), and the full reinstall e2e path now asserts the pre-upgrade backup is created.
+- **Ruff linter** — replaces flake8; runs on every push and PR before the version bump is allowed to proceed, ensuring no build or release can start with lint failures.
+- **`[Unreleased]` guard in version bump** — `tools/bump_version.py` warns when the changelog section is empty before stamping a release, so release notes are never silently blank.
+- **`tools/updater.py` now linted as production code** — it was previously excluded from all lint checks despite being the source auto-updater for deployed installations.
+
+### Changed
+- **Release Acceptance Test re-enabled** — was temporarily disabled during the German licence-plate validation fix; it now runs again on every `master` push, pull request to `master`, and manual dispatch.
+- **Dependencies consolidated in `pyproject.toml`** — runtime deps moved to `[project.dependencies]`; test/lint deps to `[project.optional-dependencies] test`. `requirements.txt` and `requirements-test.txt` now simply delegate to `pip install .` / `pip install .[test]`.
+- **Python minimum version raised to 3.12** — `requires-python`, ruff `target-version`, and all CI jobs updated to Python 3.12.
+- **Version bump also updates `pyproject.toml`** — `tools/bump_version.py` now keeps `[project].version` in sync with `config.py` so there is a single source of truth per commit.
+
+### Fixed
+- **SSL certificate verification failure in corporate networks** — the self-updater (`tsm/self_update.py`) and standalone updater (`tools/updater.py`) now call `ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)` on Windows so that enterprise root CAs deployed via Group Policy are trusted. Certificate verification is not disabled; the trust store is extended.
+- **Code quality: unused imports, variable shadowing, unreachable code** — removed across `tsm/`, `installer/`, and test files as part of the ruff migration.
+- **Multi-line f-string in `backup_manager.py`** — expression was only valid from Python 3.12; rewritten to be compatible.
+
+## [1.6.2] – 2026-04-10
+
+## [1.6.1] – 2026-04-02
+
 ## [1.6.0] – 2026-03-27
 
 ## [1.5.8] – 2026-03-27
