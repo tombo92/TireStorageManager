@@ -13,6 +13,7 @@ Triggered in CI when any file under installer/ changes.
 from __future__ import annotations
 
 import ctypes as _ctypes
+import re
 import socket
 import sys
 from pathlib import Path
@@ -196,6 +197,26 @@ class TestInstallerConstants:
 
     def test_payload_seed_db_name(self):
         assert tsm_installer.PAYLOAD_SEED_DB.name == "wheel_storage.db"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Tkinter colour literals — real Tk rejects 8-digit "#RRGGBBAA" hex
+# (no alpha channel support), but the tkinter stub used above accepts
+# any string silently. This static scan catches that class of bug
+# without needing a real display (which CI's --headless smoke test
+# never exercises, since it skips the GUI entirely).
+# ══════════════════════════════════════════════════════════════════════
+class TestTkColorLiterals:
+    _HEX8_RX = re.compile(r'#[0-9a-fA-F]{8}\b')
+
+    def test_no_alpha_hex_colors_in_source(self):
+        src = Path(tsm_installer.__file__).read_text(encoding="utf-8")
+        matches = self._HEX8_RX.findall(src)
+        assert not matches, (
+            f"Found invalid 8-digit hex color(s) {matches} in TSMInstaller.py — "
+            "Tkinter does not support an alpha channel; use a solid #RRGGBB "
+            "value instead (e.g. a lighter/darker shade)."
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
