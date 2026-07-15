@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Lightweight i18n for TireStorageManager.
 
@@ -32,8 +31,8 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "nav_backups":          {"de": "Backups",           "en": "Backups"},
     "nav_settings":         {"de": "Einstellungen",     "en": "Settings"},
     "nav_impressum":        {"de": "Impressum",         "en": "Imprint"},
-    "search_placeholder":   {"de": "Suche (Name, Kennzeichen, Fahrzeug)",
-                             "en": "Search (name, plate, vehicle)"},
+    "search_placeholder":   {"de": "Suche (Name, Kennzeichen, Fahrzeug, Notiz)",
+                             "en": "Search (name, plate, vehicle, note)"},
 
     # ── Flash messages ──────────────────────────────────────────
     "fill_required_fields": {
@@ -199,12 +198,12 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "index_total":              {"de": "Gesamt",                "en": "Total"},
     "index_occupied":           {"de": "Belegt",                "en": "Occupied"},
     "index_free":               {"de": "Frei",                  "en": "Free"},
-    "index_next_free":          {"de": "Nächste freie Position","en": "Next free position"},
+    "index_next_free":          {"de": "Nächste freie Position", "en": "Next free position"},
     "index_none":               {"de": "Keine",                 "en": "None"},
     "stats_occupancy":          {"de": "Auslastung",            "en": "Occupancy"},
     "stats_positions":          {"de": "Stellplätze",           "en": "Positions"},
     "stats_recent":             {"de": "Letzte Aktivitäten",    "en": "Recent activity"},
-    "stats_no_activity":        {"de": "Noch keine Aktivitäten","en": "No activity yet"},
+    "stats_no_activity":        {"de": "Noch keine Aktivitäten", "en": "No activity yet"},
     "stats_top_cars":           {"de": "Häufigste Fahrzeuge",   "en": "Top vehicles"},
     "stats_no_cars":            {"de": "Noch keine Einträge",   "en": "No entries yet"},
     "stats_action_create":      {"de": "Angelegt",              "en": "Created"},
@@ -225,6 +224,21 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "wl_no_results":    {"de": "Keine Radsätze gefunden.", "en": "No wheel sets found."},
     "wl_edit":          {"de": "Bearbeiten",            "en": "Edit"},
     "wl_delete":        {"de": "Löschen",               "en": "Delete"},
+    "wl_sort":          {"de": "Sortieren",             "en": "Sort"},
+    "wl_sort_updated_desc":  {"de": "Zuletzt geändert ↓", "en": "Last updated ↓"},
+    "wl_sort_updated_asc":   {"de": "Zuletzt geändert ↑", "en": "Last updated ↑"},
+    "wl_sort_customer_asc":  {"de": "Kunde A–Z",          "en": "Customer A–Z"},
+    "wl_sort_customer_desc": {"de": "Kunde Z–A",          "en": "Customer Z–A"},
+    "wl_sort_plate_asc":     {"de": "Kennzeichen A–Z",    "en": "Plate A–Z"},
+    "wl_sort_plate_desc":    {"de": "Kennzeichen Z–A",    "en": "Plate Z–A"},
+    "wl_sort_position_asc":  {"de": "Position A–Z",       "en": "Position A–Z"},
+    "wl_sort_position_desc": {"de": "Position Z–A",       "en": "Position Z–A"},
+    "wl_filter":        {"de": "Filter",                "en": "Filter"},
+    "wl_filter_all_pos":     {"de": "Alle Positionen",    "en": "All positions"},
+    "wl_filter_container":   {"de": "Nur Container",      "en": "Containers only"},
+    "wl_filter_garage":      {"de": "Nur Garage",         "en": "Garage only"},
+    "wl_filter_all_season":  {"de": "Alle Saisons",       "en": "All seasons"},
+    "wl_reset_filter":       {"de": "Filter zurücksetzen", "en": "Reset filters"},
     "wl_overdue_hint": {
         "de": "Reifenwechsel überfällig! "
               "Jan–Apr: Sommerreifen sollten bis Dezember abgeholt sein. "
@@ -303,7 +317,7 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     # ── Positions page ───────────────────────────────────────────
     "pos_title":        {"de": "Lagerplätze",           "en": "Storage Positions"},
     "pos_free":         {"de": "Freie Plätze",          "en": "Free positions"},
-    "pos_next":         {"de": "Nächste freie Position","en": "Next free position"},
+    "pos_next":         {"de": "Nächste freie Position", "en": "Next free position"},
     "pos_disabled":     {"de": "Gesperrt",              "en": "Disabled"},
     "pos_none_free":    {"de": "Keine freien Plätze",   "en": "No free positions"},
 
@@ -315,6 +329,8 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     "bk_date":          {"de": "Datum",                 "en": "Date"},
     "bk_type":          {"de": "Typ",                   "en": "Type"},
     "bk_download":      {"de": "Download",              "en": "Download"},
+    "bk_print":         {"de": "Inventur drucken",      "en": "Print Inventory"},
+    "bk_files":         {"de": "Dateien",               "en": "Files"},
     "bk_no_backups":    {"de": "Keine Backups vorhanden.", "en": "No backups available."},
 
     # ── Settings positions page ──────────────────────────────────
@@ -332,7 +348,10 @@ _CATALOGUE: dict[str, dict[str, str]] = {
     },
     "sp_editor_title":    {"de": "Positionsliste bearbeiten",  "en": "Edit Position List"},
     "sp_editor_hint": {
-        "de": "Eine Position pro Zeile. Die Reihenfolge hier bestimmt die Sortierung überall in der Anwendung.",
+        "de": (
+            "Eine Position pro Zeile. "
+            "Die Reihenfolge hier bestimmt die Sortierung überall in der Anwendung."
+        ),
         "en": "One position per line. The order here determines the sort order throughout the application.",
     },
     "sp_save":            {"de": "Positionen speichern",       "en": "Save positions"},

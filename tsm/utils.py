@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # @Date    : 2026-02-03 06:54:54
 # @Author  : Tom Brandherm (https://github.com/tombo92)
 # @Link    : https://github.com/tombo92/TireStorageManager
@@ -9,13 +8,13 @@ Utils: leichter CSRF Schutz + Kennzeichen-Validierung
 # ========================================================
 # IMPORTS
 # ========================================================
+import hmac
 import os
 import re
-import sys
-import hmac
 import secrets
-from flask import session, request, abort
+import sys
 
+from flask import abort, request, session
 
 # ========================================================
 # CONSTANTS

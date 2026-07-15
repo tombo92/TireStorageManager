@@ -130,6 +130,59 @@ class TestDeployAppExe:
                 tmp_path / "missing.exe", tmp_path / "install")
 
 
+class TestPreUpgradeBackup:
+    """Verify the safety backup created before overwriting an existing DB."""
+
+    def test_creates_backup_when_db_exists(self, tmp_path: Path):
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        (data / "db" / "wheel_storage.db").write_bytes(b"CUSTOMER_DATA")
+        msgs: list[str] = []
+        result = logic.pre_upgrade_backup(data, log=msgs.append)
+        assert result is not None
+        assert result.exists()
+        assert result.read_bytes() == b"CUSTOMER_DATA"
+        assert result.name.startswith("pre_upgrade_")
+        assert result.suffix == ".db"
+        assert result.parent == data / "backups"
+        assert any("Upgrade-Sicherung" in m for m in msgs)
+
+    def test_returns_none_when_no_db(self, tmp_path: Path):
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        msgs: list[str] = []
+        result = logic.pre_upgrade_backup(data, log=msgs.append)
+        assert result is None
+        assert any("kein Upgrade-Backup" in m for m in msgs)
+
+    def test_preserves_original_db_intact(self, tmp_path: Path):
+        """The original DB must NOT be modified or moved."""
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        db = data / "db" / "wheel_storage.db"
+        db.write_bytes(b"ORIGINAL")
+        logic.pre_upgrade_backup(data)
+        assert db.exists()
+        assert db.read_bytes() == b"ORIGINAL"
+
+    def test_multiple_backups_coexist(self, tmp_path: Path):
+        """Two rapid backups must not overwrite each other."""
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        (data / "db" / "wheel_storage.db").write_bytes(b"V1")
+        b1 = logic.pre_upgrade_backup(data)
+
+        # Simulate a content change between upgrades
+        (data / "db" / "wheel_storage.db").write_bytes(b"V2")
+        import time
+        time.sleep(1.1)  # ensure different timestamp
+        b2 = logic.pre_upgrade_backup(data)
+
+        assert b1 != b2
+        assert b1.read_bytes() == b"V1"
+        assert b2.read_bytes() == b"V2"
+
+
 class TestSeedDatabase:
     def test_seeds_when_no_db(self, tmp_path: Path):
         seed = tmp_path / "seed.db"
@@ -565,6 +618,23 @@ class TestResolveDisplayName:
 
 
 # ────────────────────────────────────────────────
+# SERVICE EXISTS
+# ────────────────────────────────────────────────
+class TestServiceExists:
+    @patch.object(logic, "run_cmd", return_value=_ok(0))
+    def test_returns_true_when_registered(self, mock_run):
+        assert logic.service_exists() is True
+        cmd = mock_run.call_args[0][0]
+        assert "sc.exe" in cmd
+        assert "query" in cmd
+
+    @patch.object(logic, "run_cmd", return_value=_ok(1060))
+    def test_returns_false_when_not_registered(self, mock_run):
+        # Exit 1060 = ERROR_SERVICE_DOES_NOT_EXIST
+        assert logic.service_exists() is False
+
+
+# ────────────────────────────────────────────────
 # UNINSTALL STEPS
 # ────────────────────────────────────────────────
 class TestStopService:
@@ -867,6 +937,8 @@ class TestFullInstallSequence:
             payload / "nssm.exe", install, log=log.append)
         app_exe2 = logic.deploy_app_exe(
             payload / "TireStorageManager.exe", install, log=log.append)
+        # Pre-upgrade backup must capture user data before touching DB
+        backup_path = logic.pre_upgrade_backup(data, log=log.append)
         # seed_database must skip because DB already exists
         logic.seed_database(
             payload / "db" / "wheel_storage.db", data, log=log.append)
@@ -880,6 +952,16 @@ class TestFullInstallSequence:
         # Data must be untouched — seed must not overwrite user data.
         assert db_path.read_bytes() == b"USERDATA", (
             "reinstall must not overwrite existing user database"
+        )
+        # Pre-upgrade backup must contain the user data
+        assert backup_path is not None, (
+            "pre_upgrade_backup must create a backup when DB exists"
+        )
+        assert backup_path.read_bytes() == b"USERDATA", (
+            "pre-upgrade backup must contain the exact pre-upgrade data"
+        )
+        assert backup_path.name.startswith("pre_upgrade_"), (
+            "pre-upgrade backup must be clearly named"
         )
         # seed_database logged "existiert bereits"
         seed_msgs = [m for m in log if "existiert" in m]
@@ -958,3 +1040,193 @@ class TestDesktopShortcut:
         msgs: list[str] = []
         logic.remove_desktop_shortcut("TestApp", log=msgs.append)
         assert any("entfernt" in m for m in msgs)
+
+
+# ────────────────────────────────────────────────
+# UPDATE CHECK (fetch_update_info + download_file)
+# ────────────────────────────────────────────────
+import json as _json  # noqa: E402  (test-only import, kept close to usage)
+from unittest.mock import MagicMock  # noqa: E402
+
+
+def _mock_http_response(body: bytes) -> MagicMock:
+    """Return a MagicMock that behaves like a urllib HTTP response context manager."""
+    resp = MagicMock()
+    resp.__enter__ = lambda s: resp
+    resp.__exit__ = MagicMock(return_value=False)
+    # fetch_update_info reads with a single resp.read() call;
+    # download_file loops over chunks until b"" — supply both variants.
+    resp.read.side_effect = [body]           # for fetch_update_info (single read)
+    resp.headers = MagicMock()
+    resp.headers.get.return_value = str(len(body))
+    return resp
+
+
+def _mock_dl_response(body: bytes) -> MagicMock:
+    """Response mock for download_file (chunked read loop)."""
+    resp = MagicMock()
+    resp.__enter__ = lambda s: resp
+    resp.__exit__ = MagicMock(return_value=False)
+    resp.read.side_effect = [body, b""]     # first call returns data, then EOF
+    resp.headers = MagicMock()
+    resp.headers.get.return_value = str(len(body))
+    return resp
+
+
+class TestFetchUpdateInfo:
+    def test_returns_all_required_keys(self):
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   side_effect=OSError("network down")):
+            info = logic.fetch_update_info("1.0.0")
+        required = {
+            "update_available", "current_version", "remote_version",
+            "release_notes", "changelog_section", "release_url", "installer_url",
+        }
+        assert required.issubset(info.keys())
+
+    def test_network_error_does_not_raise(self):
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   side_effect=OSError("down")):
+            info = logic.fetch_update_info("1.0.0")
+        assert info["update_available"] is False
+        assert info["remote_version"] is None
+
+    def test_current_version_preserved_on_error(self):
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   side_effect=OSError("down")):
+            info = logic.fetch_update_info("3.2.1")
+        assert info["current_version"] == "3.2.1"
+
+    def test_detects_newer_version(self):
+        payload = _json.dumps({
+            "tag_name": "v99.0.0",
+            "body": "## What's new",
+            "html_url": "https://github.com/example/releases/99",
+            "assets": [{
+                "name": "TSM-Installer.exe",
+                "browser_download_url": "https://example.com/TSM-Installer.exe",
+            }],
+        }).encode()
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   return_value=_mock_http_response(payload)):
+            info = logic.fetch_update_info("1.0.0")
+        assert info["update_available"] is True
+        assert info["remote_version"] == "99.0.0"
+        assert info["installer_url"] == "https://example.com/TSM-Installer.exe"
+        assert info["release_notes"] == "## What's new"
+
+    def test_same_version_no_update(self):
+        payload = _json.dumps({
+            "tag_name": "v1.0.0",
+            "body": None,
+            "html_url": "https://example.com",
+            "assets": [],
+        }).encode()
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   return_value=_mock_http_response(payload)):
+            info = logic.fetch_update_info("1.0.0")
+        assert info["update_available"] is False
+
+    def test_older_remote_no_update(self):
+        payload = _json.dumps({
+            "tag_name": "v0.5.0",
+            "body": None,
+            "html_url": "https://example.com",
+            "assets": [],
+        }).encode()
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   return_value=_mock_http_response(payload)):
+            info = logic.fetch_update_info("1.0.0")
+        assert info["update_available"] is False
+
+    def test_installer_url_matched_case_insensitively(self):
+        """Asset name match must be case-insensitive."""
+        payload = _json.dumps({
+            "tag_name": "v2.0.0",
+            "body": None,
+            "html_url": "https://example.com",
+            "assets": [{"name": "tsm-installer.exe",
+                        "browser_download_url": "https://cdn.example.com/dl"}],
+        }).encode()
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   return_value=_mock_http_response(payload)):
+            info = logic.fetch_update_info("1.0.0")
+        assert info["installer_url"] == "https://cdn.example.com/dl"
+
+    def test_no_installer_asset_leaves_url_none(self):
+        payload = _json.dumps({
+            "tag_name": "v2.0.0",
+            "body": None,
+            "html_url": "https://example.com",
+            "assets": [{"name": "SomeOtherFile.zip",
+                        "browser_download_url": "https://cdn.example.com/zip"}],
+        }).encode()
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   return_value=_mock_http_response(payload)):
+            info = logic.fetch_update_info("1.0.0")
+        assert info["installer_url"] is None
+
+    def test_ssl_context_used(self):
+        """urlopen must receive a context= argument (the SSL context).
+        Verifies that the corporate-CA fix is wired into the function."""
+        captured: list = []
+
+        def _capturing_open(req, timeout, context=None):
+            captured.append(context)
+            raise OSError("abort after capture")
+
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   side_effect=_capturing_open):
+            logic.fetch_update_info("1.0.0")
+
+        assert len(captured) == 1
+        assert captured[0] is not None, "SSL context must be passed to urlopen"
+
+
+class TestDownloadFile:
+    def test_returns_false_on_network_error(self, tmp_path: Path):
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   side_effect=OSError("down")):
+            ok = logic.download_file(
+                "https://example.com/file.exe", tmp_path / "out.exe")
+        assert ok is False
+        assert not (tmp_path / "out.exe").exists()
+
+    def test_downloads_content(self, tmp_path: Path):
+        content = b"EXE_PAYLOAD_DATA"
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   return_value=_mock_dl_response(content)):
+            ok = logic.download_file(
+                "https://example.com/file.exe", tmp_path / "out.exe")
+        assert ok is True
+        assert (tmp_path / "out.exe").read_bytes() == content
+
+    def test_reports_progress(self, tmp_path: Path):
+        content = b"X" * 2048
+        calls: list[tuple[int, int]] = []
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   return_value=_mock_dl_response(content)):
+            logic.download_file(
+                "https://example.com/file.exe",
+                tmp_path / "out.exe",
+                on_progress=lambda r, t: calls.append((r, t)),
+            )
+        assert len(calls) >= 1
+        assert calls[-1][0] == len(content)
+
+    def test_ssl_context_used(self, tmp_path: Path):
+        """download_file must pass an SSL context to urlopen."""
+        captured: list = []
+
+        def _capturing_open(req, timeout, context=None):
+            captured.append(context)
+            raise OSError("abort after capture")
+
+        with patch("installer.installer_logic.urllib.request.urlopen",
+                   side_effect=_capturing_open):
+            logic.download_file("https://example.com/f.exe",
+                                tmp_path / "f.exe")
+
+        assert len(captured) == 1
+        assert captured[0] is not None
+

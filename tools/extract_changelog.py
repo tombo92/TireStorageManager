@@ -13,9 +13,20 @@ the body text (without the heading) to stdout.  If no matching
 section is found it exits with code 0 and prints nothing — the
 CI can fall back to a generic message.
 """
+import io
 import re
 import sys
 from pathlib import Path
+
+# Ensure stdout in UTF-8 so changelog entries with Unicode characters
+# (e.g. arrows, emoji used in user-facing descriptions) are not garbled
+# on Windows consoles or when redirected in CI pipelines.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+elif hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(
+        sys.stdout.buffer, encoding="utf-8", errors="replace"
+    )
 
 CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
 

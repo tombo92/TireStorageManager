@@ -196,3 +196,134 @@ class TestInstallerConstants:
 
     def test_payload_seed_db_name(self):
         assert tsm_installer.PAYLOAD_SEED_DB.name == "wheel_storage.db"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# _UPDATE_NOTES_STUB_THRESHOLD — sparse release-notes detection
+# ══════════════════════════════════════════════════════════════════════
+class TestUpdateNotesStubThreshold:
+    def test_is_positive_int(self):
+        assert isinstance(tsm_installer._UPDATE_NOTES_STUB_THRESHOLD, int)
+        assert tsm_installer._UPDATE_NOTES_STUB_THRESHOLD > 0
+
+    def test_short_release_note_is_below_threshold(self):
+        """The v1.6.0 stub ('Siehe Commit-Historie …') must be detected."""
+        stub = (
+            "## TireStorageManager v1.6.0\n\n"
+            "Siehe [Commit-Historie](https://github.com/tombo92/"
+            "TireStorageManager/commits/master).\n"
+        )
+        assert len(stub) < tsm_installer._UPDATE_NOTES_STUB_THRESHOLD
+
+    def test_detailed_release_note_is_above_threshold(self):
+        detailed = (
+            "## What's new\n\n"
+            "- Fixed SSL CERTIFICATE_VERIFY_FAILED on corporate networks\n"
+            "- Added --ui-dev flag to installer\n"
+            "- Improved update banner layout\n"
+            "- Added re-install / already-uninstalled guards\n"
+            "- Python 3.12 migration, ruff linter, pyproject consolidation\n"
+        )
+        assert len(detailed) >= tsm_installer._UPDATE_NOTES_STUB_THRESHOLD
+
+
+# ══════════════════════════════════════════════════════════════════════
+# installer_i18n — help content catalogue
+# ══════════════════════════════════════════════════════════════════════
+from installer.installer_i18n import (
+    DEFAULT_LANG,
+    HELP_SECTIONS,
+    LANG_LABELS,
+    SUPPORTED_LANGS,
+    get_full_help_text,
+    get_help_sections,
+    resolve_lang,
+)
+
+
+class TestInstallerI18nResolve:
+    def test_resolves_known_lang(self):
+        assert resolve_lang("de") == "de"
+        assert resolve_lang("en") == "en"
+
+    def test_falls_back_for_unknown(self):
+        assert resolve_lang("fr") == DEFAULT_LANG
+        assert resolve_lang(None) == DEFAULT_LANG
+        assert resolve_lang("") == DEFAULT_LANG
+
+
+class TestInstallerI18nConstants:
+    def test_supported_langs_non_empty(self):
+        assert len(SUPPORTED_LANGS) >= 2
+        assert "de" in SUPPORTED_LANGS
+        assert "en" in SUPPORTED_LANGS
+
+    def test_lang_labels_cover_all_supported(self):
+        for lang in SUPPORTED_LANGS:
+            assert lang in LANG_LABELS
+
+    def test_help_sections_non_empty(self):
+        assert len(HELP_SECTIONS) >= 3
+
+    def test_every_section_has_both_languages(self):
+        for section in HELP_SECTIONS:
+            for lang in SUPPORTED_LANGS:
+                assert lang in section["title"], (
+                    f"section '{section['id']}' missing title for {lang}"
+                )
+            for item in section["items"]:
+                for lang in SUPPORTED_LANGS:
+                    assert lang in item["title"], (
+                        f"item missing title for {lang}"
+                    )
+                    assert lang in item["body"], (
+                        f"item missing body for {lang}"
+                    )
+
+
+class TestGetHelpSections:
+    def test_returns_list_for_de(self):
+        result = get_help_sections("de")
+        assert isinstance(result, list)
+        assert len(result) >= 3
+        assert all("heading" in s and "items" in s for s in result)
+
+    def test_returns_list_for_en(self):
+        result = get_help_sections("en")
+        assert isinstance(result, list)
+        assert len(result) >= 3
+
+    def test_de_and_en_differ(self):
+        de = get_help_sections("de")
+        en = get_help_sections("en")
+        # At least one heading must differ
+        assert any(
+            d["heading"] != e["heading"] for d, e in zip(de, en)
+        )
+
+    def test_unknown_lang_falls_back_to_de(self):
+        result = get_help_sections("xx")
+        de = get_help_sections("de")
+        assert result == de
+
+    def test_each_section_has_id(self):
+        for section in get_help_sections("de"):
+            assert "id" in section
+            assert isinstance(section["id"], str)
+
+
+class TestGetFullHelpText:
+    def test_returns_non_empty_string_de(self):
+        text = get_full_help_text("de")
+        assert isinstance(text, str)
+        assert len(text) > 200
+
+    def test_returns_non_empty_string_en(self):
+        text = get_full_help_text("en")
+        assert isinstance(text, str)
+        assert len(text) > 200
+
+    def test_contains_section_headings(self):
+        text = get_full_help_text("en")
+        assert "INPUT FIELDS" in text
+        assert "INSTALLATION STEPS" in text

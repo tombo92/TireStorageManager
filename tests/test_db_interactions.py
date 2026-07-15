@@ -207,7 +207,7 @@ class TestSettingsDb:
 
     def test_only_one_settings_row_in_practice(self, db_session):
         """App always uses get_or_create pattern — only 1 row."""
-        from tsm.routes import get_or_create_settings
+        from tsm.db import get_or_create_settings
         s1 = get_or_create_settings(db_session)
         s2 = get_or_create_settings(db_session)
         assert s1.id == s2.id
@@ -300,3 +300,84 @@ class TestSchemaMigration:
         from tsm.db import _migrate
         _migrate()
         _migrate()   # second call should be a no-op
+
+    def test_migrate_full_old_db_via_real_code(self):
+        """End-to-end upgrade: a fully old populated DB (old settings + old
+        wheel_sets schema with data) is migrated by the REAL tsm.db._migrate().
+
+        This mirrors the exact production upgrade scenario — a customer's
+        database created by an older installer version — and guarantees every
+        column the current models require is added by the real migration code,
+        and that existing rows survive untouched.
+        """
+        from sqlalchemy import create_engine, inspect, text
+        from tsm.db import _migrate
+
+        eng = create_engine("sqlite:///:memory:", future=True)
+        with eng.begin() as conn:
+            # Old minimal settings table (pre dark_mode / language / toggles)
+            conn.execute(text(
+                "CREATE TABLE settings ("
+                "  id INTEGER PRIMARY KEY,"
+                "  backup_interval_minutes INTEGER NOT NULL DEFAULT 60,"
+                "  backup_copies INTEGER NOT NULL DEFAULT 10"
+                ")"
+            ))
+            conn.execute(text(
+                "INSERT INTO settings (id, backup_interval_minutes, "
+                "backup_copies) VALUES (1, 30, 5)"
+            ))
+            # Old minimal wheel_sets table (pre tire-detail columns) with data
+            conn.execute(text(
+                "CREATE TABLE wheel_sets ("
+                "  id INTEGER PRIMARY KEY,"
+                "  customer_name VARCHAR(200) NOT NULL,"
+                "  license_plate VARCHAR(50) NOT NULL,"
+                "  car_type VARCHAR(200) NOT NULL,"
+                "  note TEXT,"
+                "  storage_position VARCHAR(20) NOT NULL UNIQUE,"
+                "  created_at DATETIME,"
+                "  updated_at DATETIME"
+                ")"
+            ))
+            conn.execute(text(
+                "INSERT INTO wheel_sets "
+                "(customer_name, license_plate, car_type, storage_position) "
+                "VALUES ('Bestandskunde', 'B-TB 3005', 'Golf', 'A1ROL')"
+            ))
+
+        import tsm.db as db_mod
+        original = db_mod.engine
+        db_mod.engine = eng
+        try:
+            _migrate()
+        finally:
+            db_mod.engine = original
+
+        insp = inspect(eng)
+        settings_cols = {c["name"] for c in insp.get_columns("settings")}
+        for col in ("dark_mode", "custom_positions_json", "auto_update",
+                    "language", "enable_tire_details",
+                    "enable_seasonal_tracking"):
+            assert col in settings_cols, f"settings missing: {col}"
+
+        ws_cols = {c["name"] for c in insp.get_columns("wheel_sets")}
+        for col in ("tire_manufacturer", "tire_size", "tire_age",
+                    "season", "rim_type", "exchange_note"):
+            assert col in ws_cols, f"wheel_sets missing: {col}"
+
+        # Existing data must survive the migration unchanged
+        with eng.connect() as conn:
+            srow = conn.execute(text(
+                "SELECT backup_interval_minutes, backup_copies FROM settings"
+            )).fetchone()
+            assert srow == (30, 5)
+            wrow = conn.execute(text(
+                "SELECT customer_name, license_plate, storage_position, "
+                "tire_manufacturer FROM wheel_sets"
+            )).fetchone()
+            assert wrow[0] == "Bestandskunde"
+            assert wrow[1] == "B-TB 3005"
+            assert wrow[2] == "A1ROL"
+            assert wrow[3] is None  # new column defaults to NULL
+        eng.dispose()
