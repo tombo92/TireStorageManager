@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Smoke and Release Acceptance Test coverage extended** — language selector, tire details toggle, and seasonal tracking toggle are now exercised in both the EXE smoke test and the RAT (Phase 1b-ext and Phase 1c).
+- **End-to-end schema-migration test against the real `_migrate()`** — a fully old, populated database (old `settings` + old `wheel_sets` schema with data) is now migrated by the production `tsm.db._migrate()` and every current column is asserted present while existing rows are verified intact. This directly validates the customer upgrade scenario (an existing database created by an older installer is used automatically without data loss).
 - **Ruff linter** — replaces flake8; runs on every push and PR before the version bump is allowed to proceed, ensuring no build or release can start with lint failures.
 - **`[Unreleased]` guard in version bump** — `tools/bump_version.py` warns when the changelog section is empty before stamping a release, so release notes are never silently blank.
 - **`tools/updater.py` now linted as production code** — it was previously excluded from all lint checks despite being the source auto-updater for deployed installations.
