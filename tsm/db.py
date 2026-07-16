@@ -97,6 +97,11 @@ def _migrate():
                 "ADD COLUMN enable_seasonal_tracking "
                 "BOOLEAN NOT NULL DEFAULT 0"
             ))
+        if "visible_fields_json" not in existing:
+            conn.execute(text(
+                "ALTER TABLE settings "
+                "ADD COLUMN visible_fields_json TEXT"
+            ))
 
     if "wheel_sets" in insp.get_table_names():
         ws_existing = {c["name"] for c in insp.get_columns("wheel_sets")}
@@ -108,6 +113,7 @@ def _migrate():
                 ("season",            "VARCHAR(20)"),
                 ("rim_type",          "VARCHAR(20)"),
                 ("exchange_note",     "TEXT"),
+                ("tires_need_renewal", "BOOLEAN NOT NULL DEFAULT 0"),
             ]:
                 if col not in ws_existing:
                     conn.execute(text(

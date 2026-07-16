@@ -158,7 +158,11 @@ def export_csv_snapshot(target_path: str | None = None) -> str:
         with open(target_path, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f, delimiter=';')
             w.writerow(["customer_name", "license_plate", "car_type", "note",
-                        "storage_position", "created_at", "updated_at"])
+                        "storage_position",
+                        "tire_manufacturer", "tire_size", "tire_age",
+                        "season", "rim_type", "exchange_note",
+                        "tires_need_renewal",
+                        "created_at", "updated_at"])
             for r in rows:
                 w.writerow([
                     r.customer_name,
@@ -166,6 +170,13 @@ def export_csv_snapshot(target_path: str | None = None) -> str:
                     r.car_type,
                     r.note or "",
                     r.storage_position,
+                    r.tire_manufacturer or "",
+                    r.tire_size or "",
+                    r.tire_age or "",
+                    r.season or "",
+                    r.rim_type or "",
+                    r.exchange_note or "",
+                    "1" if r.tires_need_renewal else "0",
                     (r.created_at.isoformat() if r.created_at else ""),
                     (r.updated_at.isoformat() if r.updated_at else ""),
                 ])
@@ -224,9 +235,11 @@ def export_xlsx_snapshot(target_path: str | None = None) -> str:
         ws = wb.active
         ws.title = "Bestandsübersicht"
 
-        col_widths = [5, 14, 24, 14, 22, 24, 5]
+        col_widths = [5, 14, 24, 14, 22, 24, 14, 12, 10, 10, 10, 5]
         col_headers = ["Nr.", "Position", "Kunde", "Kennzeichen",
-                       "Fahrzeug", "Notiz", "\u2713"]
+                       "Fahrzeug", "Notiz",
+                       "Hersteller", "Gr\u00f6\u00dfe", "Alter/DOT",
+                       "Saison", "Erneuerung", "\u2713"]
         num_cols = len(col_headers)
         last_col = get_column_letter(num_cols)
 
@@ -295,6 +308,11 @@ def export_xlsx_snapshot(target_path: str | None = None) -> str:
                     r.license_plate,
                     r.car_type,
                     r.note or "",
+                    r.tire_manufacturer or "",
+                    r.tire_size or "",
+                    r.tire_age or "",
+                    r.season or "",
+                    "\u26a0" if r.tires_need_renewal else "",
                     "",
                 ]
                 for col_idx, val in enumerate(values, 1):
