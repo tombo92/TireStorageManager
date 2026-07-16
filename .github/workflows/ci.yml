@@ -407,11 +407,12 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────
   # build-installer – all branches
-  # Runs when build-app passed AND smoke-app passed or was skipped
-  # (skipped = no app changes, but installer changes present).
-  # Also runs on develop/master whenever a version bump succeeds,
-  # because the installer bundles TireStorageManager.exe and must be
-  # rebuilt for every release even if installer/ files are unchanged.
+  # Runs when build-app passed AND smoke-app passed or was skipped.
+  # The installer bundles TireStorageManager.exe and must be rebuilt:
+  #   - whenever installer/ source files changed, OR
+  #   - whenever a version bump succeeds (release pipeline), OR
+  #   - on master PRs/pushes/dispatch, because release-test needs
+  #     TSM-Installer.exe to run the full acceptance test.
   # ────────────────────────────────────────────────────────────────
   build-installer:
     needs: [ changes, bump, build-app, smoke-app ]
@@ -423,7 +424,10 @@ jobs:
       github.actor != 'github-actions[bot]' &&
       (
         needs.changes.outputs.installer == 'true' ||
-        needs.bump.result == 'success'
+        needs.bump.result == 'success' ||
+        (github.event_name == 'pull_request' && github.base_ref == 'master') ||
+        (github.event_name == 'push' && github.ref_name == 'master') ||
+        github.event_name == 'workflow_dispatch'
       )
     runs-on: windows-latest
     env:
