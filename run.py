@@ -39,7 +39,11 @@ from config import BACKUP_DIR, LOG_DIR, LOG_LEVEL  # noqa: E402
 from tsm.app import create_app  # noqa: E402
 from tsm.backup_manager import BackupManager  # noqa: E402
 from tsm.db import engine  # noqa: E402
-from tsm.self_update import check_for_update  # noqa: E402
+from tsm.self_update import (  # noqa: E402
+    check_for_update,
+    read_update_marker,
+    rollback_update,
+)
 
 # ========================================================
 # LOGGING
@@ -223,6 +227,48 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # ── Post-update verification (frozen EXE only) ──
+    # If an update marker exists, the previous process updated us.
+    # Verify the DB is accessible before continuing. If not, roll back.
+    marker = read_update_marker()
+    if marker:
+        old_ver, new_ver = marker
+        log.info(
+            "Post-update launch detected: %s -> %s. "
+            "Running verification ...", old_ver, new_ver)
+        try:
+            from tsm.db import SessionLocal
+            from tsm.models import Settings, WheelSet
+            db = SessionLocal()
+            try:
+                # Verify core tables are queryable
+                db.query(Settings).first()
+                db.query(WheelSet).count()
+                log.info(
+                    "Post-update verification OK: DB accessible, "
+                    "tables queryable.")
+            except Exception as e:
+                log.error(
+                    "Post-update verification FAILED: %s. "
+                    "Rolling back to v%s ...", e, old_ver)
+                if rollback_update():
+                    log.info(
+                        "Rollback initiated. Service will restart "
+                        "with the previous version.")
+                    sys.exit(1)
+                else:
+                    log.error(
+                        "Rollback failed — no .exe.old available. "
+                        "Manual intervention required.")
+            finally:
+                SessionLocal.remove()
+        except Exception as e:
+            log.error(
+                "Post-update verification error (import): %s. "
+                "Attempting rollback ...", e)
+            if rollback_update():
+                sys.exit(1)
 
     # ── Self-update check (only for frozen EXE, unless --no-update) ──
     if not args.no_update and not args.dev:

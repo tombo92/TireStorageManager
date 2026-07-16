@@ -193,8 +193,12 @@ class InstallerApp(tk.Tk):
         self.app_exe: Path | None = None
         self._update_info: dict | None = None
 
+        # Hidden diagnostic key sequence: '###' (three '#' in a row)
+        self._diag_keys: list[str] = []
+
         self._build_ui()
         self._start_update_check()
+        self._bind_diag_keys()
 
     # --------------------------------------------------------
     # Registry persistence
@@ -472,6 +476,31 @@ class InstallerApp(tk.Tk):
         HelpWindow(self)
 
     # --------------------------------------------------------
+    # Hidden diagnostic panel (### key sequence)
+    # --------------------------------------------------------
+    def _bind_diag_keys(self) -> None:
+        """Listen for the '###' key sequence to open the diagnostic panel."""
+        self.bind("<Key>", self._on_diag_key)
+
+    def _on_diag_key(self, event) -> None:
+        """Track '#' key presses; open diag panel after three consecutive."""
+        if event.char == "#":
+            self._diag_keys.append("#")
+            if len(self._diag_keys) >= 3:
+                self._diag_keys.clear()
+                self._open_diagnostics()
+        else:
+            self._diag_keys.clear()
+
+    def _open_diagnostics(self) -> None:
+        """Open the diagnostic window."""
+        DiagnosticWindow(
+            self,
+            install_dir=Path(self.var_install.get()),
+            data_dir=Path(self.var_data.get()),
+        )
+
+    # --------------------------------------------------------
     # Async update check
     # --------------------------------------------------------
     def _start_update_check(self) -> None:
@@ -504,14 +533,15 @@ class InstallerApp(tk.Tk):
             font=("Segoe UI", 10, "bold"),
         ).pack(side="left", padx=10, pady=(5, 2))
 
-        # Row 2 – data note on the left, action buttons on the right
+        # Row 2 – data note + server hint, action buttons on the right
         row2 = tk.Frame(self._update_frame, bg=BG_UPDATE)
         row2.pack(fill="x")
         tk.Label(
             row2,
-            text="  Ihre Daten (DB, Backups, Logs) bleiben vollständig erhalten.",
-            bg=BG_UPDATE, fg="#bbf7d0",
-            font=("Segoe UI", 9),
+            text="  ⚠ Update nur auf dem Server-PC ausführen, "
+                 "nicht auf einem Client-Arbeitsplatz!",
+            bg=BG_UPDATE, fg="#fde68a",
+            font=("Segoe UI", 9, "bold"),
         ).pack(side="left", padx=10, pady=(2, 5))
         tk.Button(
             row2, text="Infos & Changelog",
@@ -594,6 +624,21 @@ class InstallerApp(tk.Tk):
                 "Ihre Datenbank, Backups und Logs bleiben dabei "
                 "vollständig erhalten.\n\n"
                 "Fortfahren?",
+                icon="warning",
+            ):
+                return
+        elif not self.dev_mode and not logic.service_exists():
+            # Fresh install on a machine without an existing service —
+            # warn in case the user intended to update a different server.
+            if not messagebox.askyesno(
+                "Neuinstallation",
+                "Auf diesem Computer ist kein bestehender "
+                f"'{SERVICE_NAME}'-Dienst registriert.\n\n"
+                "Dies ist eine Neuinstallation mit einer leeren Datenbank.\n\n"
+                "Falls Sie einen bestehenden Server aktualisieren möchten, "
+                "starten Sie den Installer bitte auf dem Server-PC "
+                "(nicht auf einem Client-Arbeitsplatz).\n\n"
+                "Wirklich hier neu installieren?",
                 icon="warning",
             ):
                 return
@@ -1831,6 +1876,284 @@ def _run_headless(args: argparse.Namespace) -> int:
 
     print(f"Unknown action: {args.action}", flush=True)
     return 1
+
+
+# ========================================================
+# DIAGNOSTIC WINDOW (hidden — triggered by '###')
+# ========================================================
+class DiagnosticWindow(tk.Toplevel):
+    """Hidden diagnostic panel showing installation health checks.
+
+    Opened by pressing '###' while the installer is in admin mode.
+    All checks are read-only — nothing is modified.
+
+    Includes a "Deploy Release" section that:
+    1. Fetches all available GitHub releases
+    2. Lets the user pick a version
+    3. Stops the service, downloads the EXE, deploys it, restarts
+    4. Verifies the service comes up (port + DB health)
+    5. Rolls back to the previous EXE on failure
+    """
+
+    _STATUS_ICONS = {"ok": "✅", "warn": "⚠️", "error": "❌"}
+    _STATUS_COLORS = {"ok": SUCCESS, "warn": "#eab308", "error": ERROR_CLR}
+
+    def __init__(self, parent: InstallerApp, install_dir: Path,
+                 data_dir: Path):
+        super().__init__(parent)
+        self._install_dir = install_dir
+        self._data_dir = data_dir
+        self._parent_app = parent
+
+        self.title("🔧 Diagnose-Tool")
+        self.geometry("800x720")
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+
+        # Header
+        hdr = tk.Frame(self, bg="#7c3aed", height=44)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Label(
+            hdr, text="  🔧 Diagnose-Tool  –  Installationsprüfung",
+            bg="#7c3aed", fg="white",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left", padx=8, pady=8)
+
+        # Info bar
+        info = tk.Frame(self, bg=BG_CARD)
+        info.pack(fill="x", padx=12, pady=(8, 0))
+        tk.Label(
+            info,
+            text=f"Install: {install_dir}\nDaten: {data_dir}",
+            bg=BG_CARD, fg="#94a3b8",
+            font=("Consolas", 9), justify="left",
+        ).pack(anchor="w", padx=8, pady=4)
+
+        # ── Deploy Release section ──
+        deploy_card = tk.Frame(self, bg=BG_CARD)
+        deploy_card.pack(fill="x", padx=12, pady=(8, 0))
+        tk.Label(
+            deploy_card,
+            text="  🚀  Release deployen (Stop → Download → Deploy → Start → Verify)",
+            bg=BG_CARD, fg=ACCENT,
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", padx=8, pady=(6, 2))
+
+        deploy_row = tk.Frame(deploy_card, bg=BG_CARD)
+        deploy_row.pack(fill="x", padx=8, pady=(2, 8))
+
+        self._var_release = tk.StringVar(value="Releases laden …")
+        self._release_combo = ttk.Combobox(
+            deploy_row, textvariable=self._var_release,
+            state="disabled", width=45,
+            font=("Consolas", 9),
+        )
+        self._release_combo.pack(side="left")
+
+        self._btn_deploy = tk.Button(
+            deploy_row,
+            text="  ⬇ Deployen & Verifizieren  ",
+            font=("Segoe UI", 9, "bold"),
+            bg=SUCCESS, fg="white", relief="flat",
+            state="disabled",
+            command=self._on_deploy,
+        )
+        self._btn_deploy.pack(side="left", padx=(8, 0))
+
+        self._deploy_status = tk.Label(
+            deploy_card, text="",
+            bg=BG_CARD, fg="#94a3b8",
+            font=("Segoe UI", 9),
+            anchor="w",
+        )
+        self._deploy_status.pack(anchor="w", padx=8, pady=(0, 4))
+
+        self._releases: list[dict] = []
+
+        # Scrollable results area
+        container = tk.Frame(self, bg=BG_DARK)
+        container.pack(fill="both", expand=True, padx=12, pady=8)
+
+        canvas = tk.Canvas(container, bg=BG_DARK, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical",
+                                  command=canvas.yview)
+        self._results_frame = tk.Frame(canvas, bg=BG_DARK)
+        self._results_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self._results_frame,
+                             anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Buttons
+        btn_bar = tk.Frame(self, bg=BG_DARK)
+        btn_bar.pack(fill="x", padx=12, pady=(0, 12))
+
+        tk.Button(
+            btn_bar, text="  🔄 Erneut prüfen  ",
+            font=("Segoe UI", 10), bg=ACCENT, fg="white",
+            relief="flat",
+            command=lambda: self._run_checks(install_dir, data_dir),
+        ).pack(side="left")
+
+        tk.Button(
+            btn_bar, text="  📋 In Zwischenablage  ",
+            font=("Segoe UI", 10), bg="#475569", fg="white",
+            relief="flat",
+            command=self._copy_to_clipboard,
+        ).pack(side="left", padx=(8, 0))
+
+        tk.Button(
+            btn_bar, text="  Schließen  ",
+            font=("Segoe UI", 10), bg="#64748b", fg="white",
+            relief="flat",
+            command=self.destroy,
+        ).pack(side="right")
+
+        self._checks: list[dict] = []
+        self._run_checks(install_dir, data_dir)
+        self._fetch_releases_async()
+
+    def _fetch_releases_async(self) -> None:
+        """Fetch available releases in a background thread."""
+        threading.Thread(target=self._fetch_releases_worker,
+                         daemon=True).start()
+
+    def _fetch_releases_worker(self) -> None:
+        releases = logic.fetch_all_releases()
+        self.after(0, self._populate_releases, releases)
+
+    def _populate_releases(self, releases: list[dict]) -> None:
+        self._releases = [r for r in releases if r.get("app_url")]
+        if not self._releases:
+            self._var_release.set("Keine Releases mit EXE gefunden")
+            return
+        values = []
+        for r in self._releases:
+            pre = " [PRE]" if r.get("prerelease") else ""
+            values.append(
+                f"v{r['version']}  ({r['published']}){pre}")
+        self._release_combo.configure(values=values, state="readonly")
+        self._var_release.set(values[0])
+        self._btn_deploy.configure(state="normal")
+
+    def _on_deploy(self) -> None:
+        """Deploy the selected release version."""
+        idx = self._release_combo.current()
+        if idx < 0 or idx >= len(self._releases):
+            return
+        release = self._releases[idx]
+        version = release["version"]
+        app_url = release["app_url"]
+
+        if not messagebox.askyesno(
+            "Release deployen",
+            f"Version v{version} wird heruntergeladen und installiert.\n\n"
+            "Der Dienst wird gestoppt, die EXE ersetzt, und der Dienst "
+            "neu gestartet. Bei Fehlern wird automatisch auf die "
+            "vorherige Version zurückgewechselt.\n\n"
+            "Fortfahren?",
+            parent=self,
+        ):
+            return
+
+        self._btn_deploy.configure(state="disabled")
+        self._release_combo.configure(state="disabled")
+        self._deploy_log_lines: list[str] = []
+        threading.Thread(
+            target=self._deploy_worker,
+            args=(app_url, version),
+            daemon=True,
+        ).start()
+
+    def _deploy_worker(self, app_url: str, version: str) -> None:
+        def log_line(msg: str) -> None:
+            self._deploy_log_lines.append(msg)
+            self.after(0, self._update_deploy_status, msg)
+
+        ok = logic.deploy_release(
+            app_url=app_url,
+            install_dir=self._install_dir,
+            data_dir=self._data_dir,
+            log=log_line,
+        )
+        self.after(0, self._deploy_finished, ok, version)
+
+    def _update_deploy_status(self, msg: str) -> None:
+        self._deploy_status.configure(text=msg)
+
+    def _deploy_finished(self, ok: bool, version: str) -> None:
+        self._btn_deploy.configure(state="normal")
+        self._release_combo.configure(state="readonly")
+
+        # Re-run checks to show current state
+        self._run_checks(self._install_dir, self._data_dir)
+
+        if ok:
+            messagebox.showinfo(
+                "Deployment erfolgreich",
+                f"Version v{version} wurde erfolgreich installiert "
+                "und verifiziert.\n\n"
+                "Der Dienst läuft und die Datenbank ist erreichbar.",
+                parent=self,
+            )
+        else:
+            # Attempt rollback
+            log_lines = "\n".join(self._deploy_log_lines[-6:])
+            messagebox.showerror(
+                "Deployment fehlgeschlagen",
+                f"Version v{version} konnte nicht verifiziert werden.\n\n"
+                "Die vorherige Version wird wiederhergestellt. "
+                "Bitte prüfen Sie die Diagnose-Ergebnisse.\n\n"
+                f"Letzte Meldungen:\n{log_lines}",
+                parent=self,
+            )
+
+    def _run_checks(self, install_dir: Path, data_dir: Path) -> None:
+        """Run all diagnostic checks and display results."""
+        # Clear previous results
+        for w in self._results_frame.winfo_children():
+            w.destroy()
+
+        self._checks = logic.diagnose(install_dir, data_dir)
+
+        for check in self._checks:
+            status = check.get("status", "error")
+            icon = self._STATUS_ICONS.get(status, "?")
+            color = self._STATUS_COLORS.get(status, FG_TEXT)
+
+            row = tk.Frame(self._results_frame, bg=BG_CARD)
+            row.pack(fill="x", pady=2)
+
+            tk.Label(
+                row, text=f" {icon}  {check['label']}",
+                bg=BG_CARD, fg=color,
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+            ).pack(fill="x", padx=8, pady=(4, 0))
+
+            tk.Label(
+                row, text=check.get("detail", ""),
+                bg=BG_CARD, fg="#cbd5e1",
+                font=("Consolas", 9),
+                anchor="w", justify="left",
+                wraplength=720,
+            ).pack(fill="x", padx=(28, 8), pady=(0, 4))
+
+    def _copy_to_clipboard(self) -> None:
+        """Copy all diagnostic results to the clipboard as plain text."""
+        lines = ["=== TSM Diagnose-Bericht ===\n"]
+        for check in self._checks:
+            icon = self._STATUS_ICONS.get(check.get("status", ""), "?")
+            lines.append(f"{icon} {check['label']}")
+            lines.append(f"   {check.get('detail', '')}\n")
+        text = "\n".join(lines)
+        self.clipboard_clear()
+        self.clipboard_append(text)
 
 
 def main():
