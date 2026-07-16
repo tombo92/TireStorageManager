@@ -26,7 +26,7 @@ def _add(db, name, plate, car, pos, note=None, season=None):
 
 
 def _search(db, q="", sort="updated_desc", filter_pos="",
-            filter_season=""):
+            filter_season="", filter_renewal=""):
     """Replicate the query logic from list_wheelsets without Flask."""
 
     query = db.query(WheelSet)
@@ -47,6 +47,9 @@ def _search(db, q="", sort="updated_desc", filter_pos="",
 
     if filter_season:
         query = query.filter(WheelSet.season == filter_season)
+
+    if filter_renewal == "1":
+        query = query.filter(WheelSet.tires_need_renewal == True)  # noqa: E712
 
     sort_map = {
         "updated_desc":  WheelSet.updated_at.desc(),
@@ -299,3 +302,183 @@ class TestCombined:
         _add(db_session, "Y", "Y-Y 1", "X", "GR1OL")
         results = _search(db_session)
         assert len(results) == 2
+
+
+# =========================================================
+# NULL note edge cases (customer-reported scenario)
+# =========================================================
+class TestNullNoteSearch:
+    """When note is NULL, LIKE returns NULL (not FALSE).
+    In SQLAlchemy's OR chain, NULL OR TRUE → TRUE, so rows with
+    NULL notes must still appear when another column matches."""
+
+    def test_null_note_matches_by_customer_name(self, db_session):
+        """Row with NULL note must appear when customer_name matches."""
+        _add(db_session, "Max Mustermann", "M-MM 1", "Golf", "C1ROL",
+             note=None)
+        results = _search(db_session, q="Mustermann")
+        assert len(results) == 1
+
+    def test_null_note_matches_by_plate(self, db_session):
+        _add(db_session, "X", "B-AB 1234", "Golf", "C1ROL", note=None)
+        results = _search(db_session, q="B-AB")
+        assert len(results) == 1
+
+    def test_null_note_matches_by_car_type(self, db_session):
+        _add(db_session, "X", "X-X 1", "BMW 3er", "C1ROL", note=None)
+        results = _search(db_session, q="BMW")
+        assert len(results) == 1
+
+    def test_null_note_not_matched_by_random_query(self, db_session):
+        """Row with NULL note must NOT appear when no column matches."""
+        _add(db_session, "X", "X-X 1", "Golf", "C1ROL", note=None)
+        results = _search(db_session, q="ZZNOTFOUND")
+        assert len(results) == 0
+
+    def test_mix_null_and_real_notes(self, db_session):
+        """Mixed scenario: one row has matching note, another has NULL."""
+        _add(db_session, "Anna", "A-A 1", "Golf", "C1ROL",
+             note="Winterreifen geprüft")
+        _add(db_session, "Bob", "B-B 1", "Golf", "C1RML", note=None)
+        results = _search(db_session, q="Winterreifen")
+        assert len(results) == 1
+        assert results[0].customer_name == "Anna"
+
+    def test_all_null_notes_with_name_match(self, db_session):
+        """Multiple rows with NULL notes, searching by a common car type."""
+        _add(db_session, "A", "A-A 1", "VW Golf", "C1ROL", note=None)
+        _add(db_session, "B", "B-B 1", "VW Golf", "C1RML", note=None)
+        _add(db_session, "C", "C-C 1", "BMW 3er", "C2ROL", note=None)
+        results = _search(db_session, q="VW Golf")
+        assert len(results) == 2
+
+
+# =========================================================
+# Renewal filter tests
+# =========================================================
+class TestFilterRenewal:
+    def test_renewal_filter_returns_only_flagged(self, db_session):
+        ws1 = WheelSet(customer_name="Renew", license_plate="R-R 1",
+                       car_type="Golf", storage_position="C1ROL",
+                       tires_need_renewal=True)
+        ws2 = WheelSet(customer_name="NoRenew", license_plate="N-N 1",
+                       car_type="Golf", storage_position="C1RML",
+                       tires_need_renewal=False)
+        db_session.add_all([ws1, ws2])
+        db_session.commit()
+        results = _search(db_session, filter_renewal="1")
+        assert len(results) == 1
+        assert results[0].customer_name == "Renew"
+
+    def test_no_renewal_filter_returns_all(self, db_session):
+        ws1 = WheelSet(customer_name="Renew", license_plate="R-R 2",
+                       car_type="Golf", storage_position="C1ROL",
+                       tires_need_renewal=True)
+        ws2 = WheelSet(customer_name="NoRenew", license_plate="N-N 2",
+                       car_type="Golf", storage_position="C1RML",
+                       tires_need_renewal=False)
+        db_session.add_all([ws1, ws2])
+        db_session.commit()
+        results = _search(db_session, filter_renewal="")
+        assert len(results) == 2
+
+    def test_renewal_filter_combined_with_search(self, db_session):
+        ws1 = WheelSet(customer_name="Hans Renewal", license_plate="H-R 1",
+                       car_type="Golf", storage_position="C1ROL",
+                       tires_need_renewal=True)
+        ws2 = WheelSet(customer_name="Hans NoRenewal", license_plate="H-N 1",
+                       car_type="Golf", storage_position="C1RML",
+                       tires_need_renewal=False)
+        ws3 = WheelSet(customer_name="Other Renewal", license_plate="O-R 1",
+                       car_type="Golf", storage_position="C2ROL",
+                       tires_need_renewal=True)
+        db_session.add_all([ws1, ws2, ws3])
+        db_session.commit()
+        results = _search(db_session, q="Hans", filter_renewal="1")
+        assert len(results) == 1
+        assert results[0].customer_name == "Hans Renewal"
+
+    def test_renewal_filter_combined_with_season(self, db_session):
+        ws1 = WheelSet(customer_name="Winter Renew", license_plate="W-R 1",
+                       car_type="Golf", storage_position="C1ROL",
+                       tires_need_renewal=True, season="winter")
+        ws2 = WheelSet(customer_name="Summer Renew", license_plate="S-R 1",
+                       car_type="Golf", storage_position="C1RML",
+                       tires_need_renewal=True, season="sommer")
+        db_session.add_all([ws1, ws2])
+        db_session.commit()
+        results = _search(db_session, filter_renewal="1",
+                          filter_season="winter")
+        assert len(results) == 1
+        assert results[0].customer_name == "Winter Renew"
+
+    def test_renewal_with_null_note_and_search(self, db_session):
+        """Renewal-flagged row with NULL note found by customer name."""
+        ws = WheelSet(customer_name="Flagged Customer",
+                      license_plate="F-C 1", car_type="Golf",
+                      storage_position="C1ROL",
+                      tires_need_renewal=True, note=None)
+        db_session.add(ws)
+        db_session.commit()
+        results = _search(db_session, q="Flagged", filter_renewal="1")
+        assert len(results) == 1
+
+
+# =========================================================
+# Search via Flask routes (integration)
+# =========================================================
+class TestSearchRouteIntegration:
+    """Test the actual /wheelsets endpoint with query parameters."""
+
+    def test_search_by_note_via_route(self, client, seed_settings,
+                                      db_session):
+        ws = WheelSet(customer_name="Route Test",
+                      license_plate="R-T 1", car_type="Golf",
+                      storage_position="C1ROM",
+                      note="Spezialbehandlung")
+        db_session.add(ws)
+        db_session.commit()
+        resp = client.get("/wheelsets?q=Spezialbehandlung")
+        assert resp.status_code == 200
+        assert b"Route Test" in resp.data
+
+    def test_search_null_note_by_name_via_route(self, client,
+                                                 seed_settings,
+                                                 db_session):
+        ws = WheelSet(customer_name="Null Note Kunde",
+                      license_plate="N-N 1", car_type="Golf",
+                      storage_position="C1ROM", note=None)
+        db_session.add(ws)
+        db_session.commit()
+        resp = client.get("/wheelsets?q=Null+Note")
+        assert resp.status_code == 200
+        assert b"Null Note Kunde" in resp.data
+
+    def test_renewal_filter_via_route(self, client, seed_settings,
+                                      db_session):
+        ws1 = WheelSet(customer_name="Flagged",
+                       license_plate="F-F 1", car_type="Golf",
+                       storage_position="C1ROM",
+                       tires_need_renewal=True)
+        ws2 = WheelSet(customer_name="Normal",
+                       license_plate="N-N 2", car_type="Golf",
+                       storage_position="C1LOM",
+                       tires_need_renewal=False)
+        db_session.add_all([ws1, ws2])
+        db_session.commit()
+        resp = client.get("/wheelsets?filter_renewal=1")
+        assert resp.status_code == 200
+        assert b"Flagged" in resp.data
+        assert b"Normal" not in resp.data
+
+    def test_search_umlaut_via_route(self, client, seed_settings,
+                                     db_session):
+        ws = WheelSet(customer_name="Müller",
+                      license_plate="M-M 1", car_type="Golf",
+                      storage_position="C1ROM",
+                      note="Ölwechsel fällig")
+        db_session.add(ws)
+        db_session.commit()
+        resp = client.get("/wheelsets?q=%C3%B6lwechsel")  # ölwechsel
+        assert resp.status_code == 200
+        assert "Müller".encode("utf-8") in resp.data
