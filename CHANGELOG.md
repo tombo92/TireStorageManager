@@ -18,10 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.9.0] – 2026-07-15
+### Changed
+- **Branch-aware version bumping on `master`** — merging a `feat/**`/`feature/**` branch now bumps the minor version as before (`1.2.3` → `1.3.0`), but merging a `fix/**`/`bugfix/**`/`hotfix/**` branch now only bumps the patch version (`1.2.3` → `1.2.4`) instead of always jumping the minor version. Detection is based on the merged PR's source branch name and implemented in `tools/detect_bump_type.py` (fully unit-tested). See README "Versioning" for the full convention and fallback behaviour.
 
-### Fixed
-- **Installer crashed on launch** — an invalid 8-digit hex colour (`#ffffffaa`) used for the version label was rejected by Tkinter (`invalid color name`), crashing `TSM-Installer.exe` immediately for every user before the window even appeared. Replaced with a solid colour. Added a static regression test scanning for alpha-hex colour literals.
+### Added
+- **Impressum links** — added a link to the developer's personal website (tombra.ddns.net) and an official "Buy Me a Coffee" button (buymeacoffee.com/tombra), both purely optional/supportive, clearly marked as free-to-use software.
 
 ## [1.8.0] – 2026-07-15
 
