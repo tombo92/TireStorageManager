@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] – 2026-07-16
+
 ### Changed
 - **Branch-aware version bumping on `master`** — merging a `feat/**`/`feature/**` branch now bumps the minor version as before (`1.2.3` → `1.3.0`), but merging a `fix/**`/`bugfix/**`/`hotfix/**` branch now only bumps the patch version (`1.2.3` → `1.2.4`) instead of always jumping the minor version. Detection is based on the merged PR's source branch name and implemented in `tools/detect_bump_type.py` (fully unit-tested). See README "Versioning" for the full convention and fallback behaviour.
 
