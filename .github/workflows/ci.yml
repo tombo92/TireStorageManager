@@ -183,14 +183,20 @@ jobs:
   #            fix/**, bugfix/**, hotfix/**   -> patch (1.2.3 → 1.2.4)
   #            anything else / direct push    -> minor (safe default)
   # Requires test-app to pass (or be skipped when app unchanged).
+  # Deliberately NOT gated on needs.changes.outputs.app: the top-level
+  # `on.push.paths` filter already restricts the whole workflow to
+  # relevant file types (**.py, templates/**, static/**, requirements,
+  # pyproject.toml, .github/workflows/**), so any push to master/
+  # develop reaching this point should still produce a release, even
+  # when only CI/tooling files (e.g. tools/**, workflow yml) changed
+  # and none of the `changes` job's app/installer path filters match.
   # ────────────────────────────────────────────────────────────────
   bump:
-    needs: [ changes, lint, test-app ]
+    needs: [ lint, test-app ]
     if: >
       always() &&
       needs.lint.result == 'success' &&
       (needs.test-app.result == 'success' || needs.test-app.result == 'skipped') &&
-      needs.changes.outputs.app == 'true' &&
       github.event_name == 'push' &&
       github.actor != 'github-actions[bot]' &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
@@ -401,11 +407,12 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────
   # build-installer – all branches
-  # Runs when build-app passed AND smoke-app passed or was skipped
-  # (skipped = no app changes, but installer changes present).
-  # Also runs on develop/master whenever a version bump succeeds,
-  # because the installer bundles TireStorageManager.exe and must be
-  # rebuilt for every release even if installer/ files are unchanged.
+  # Runs when build-app passed AND smoke-app passed or was skipped.
+  # The installer bundles TireStorageManager.exe and must be rebuilt:
+  #   - whenever installer/ source files changed, OR
+  #   - whenever a version bump succeeds (release pipeline), OR
+  #   - on master PRs/pushes/dispatch, because release-test needs
+  #     TSM-Installer.exe to run the full acceptance test.
   # ────────────────────────────────────────────────────────────────
   build-installer:
     needs: [ changes, bump, build-app, smoke-app ]
@@ -417,7 +424,10 @@ jobs:
       github.actor != 'github-actions[bot]' &&
       (
         needs.changes.outputs.installer == 'true' ||
-        needs.bump.result == 'success'
+        needs.bump.result == 'success' ||
+        (github.event_name == 'pull_request' && github.base_ref == 'master') ||
+        (github.event_name == 'push' && github.ref_name == 'master') ||
+        github.event_name == 'workflow_dispatch'
       )
     runs-on: windows-latest
     env:
@@ -559,14 +569,17 @@ jobs:
             ${{ runner.temp }}/tsm_installer_ci/
 
   # ────────────────────────────────────────────────────────────────
-  # release-test – master PRs + manual dispatch (any branch)
+  # release-test – master PRs + manual dispatch (any branch) +
+  # ALWAYS whenever a version bump succeeded (master or develop push),
+  # since a bump means a release is about to be cut and the full
+  # acceptance test is the crucial gate before commit-bump/release run.
   # Full release acceptance test (Phases 1–4).
   # Requires smoke-app AND smoke-installer (or skipped) to pass.
   # On workflow_dispatch: smoke jobs may be skipped if no relevant
   # files changed; release-test will only run if build-app succeeded.
   # ────────────────────────────────────────────────────────────────
   release-test:
-    needs: [ build-app, smoke-app, build-installer, smoke-installer ]
+    needs: [ bump, build-app, smoke-app, build-installer, smoke-installer ]
     if: >
       always() &&
       needs.build-app.result == 'success' &&
@@ -577,6 +590,7 @@ jobs:
         (github.event_name == 'pull_request' && github.base_ref == 'master')
         || (github.event_name == 'push' && github.ref_name == 'master')
         || github.event_name == 'workflow_dispatch'
+        || needs.bump.result == 'success'
       )
     runs-on: windows-latest
     timeout-minutes: 90
@@ -648,7 +662,10 @@ jobs:
   # commit-bump – develop + master only
   # Commits bumped version and pushes git tag.
   # Requires all previous jobs to pass or be legitimately skipped.
-  # On master: release-test must have passed.
+  # release-test always runs whenever bump succeeds (see release-test
+  # job), so it must explicitly SUCCEED here — never merely skipped —
+  # on both master and develop, since it's the crucial gate before a
+  # release is cut.
   # ────────────────────────────────────────────────────────────────
   commit-bump:
     needs: [ bump, build-app, smoke-app, build-installer, smoke-installer, test-installer, release-test ]
@@ -660,11 +677,7 @@ jobs:
       (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
       (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
       (needs.test-installer.result == 'success' || needs.test-installer.result == 'skipped') &&
-      (needs.release-test.result == 'success' || needs.release-test.result == 'skipped') &&
-      (
-        github.ref_name != 'master' ||
-        needs.release-test.result == 'success'
-      )
+      needs.release-test.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -722,11 +735,7 @@ jobs:
       (needs.build-installer.result == 'success' || needs.build-installer.result == 'skipped') &&
       (needs.smoke-installer.result == 'success' || needs.smoke-installer.result == 'skipped') &&
       (needs.test-installer.result == 'success' || needs.test-installer.result == 'skipped') &&
-      (needs.release-test.result == 'success' || needs.release-test.result == 'skipped') &&
-      (
-        github.ref_name != 'master' ||
-        needs.release-test.result == 'success'
-      ) &&
+      needs.release-test.result == 'success' &&
       (github.ref_name == 'master' || github.ref_name == 'develop')
     runs-on: ubuntu-latest
     steps:

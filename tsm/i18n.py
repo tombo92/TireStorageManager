@@ -413,6 +413,39 @@ _CATALOGUE: dict[str, dict[str, str]] = {
         "en": "Move the mouse or press a key to continue …",
     },
 
+    # ── Visible fields / customizable columns ─────────────────────
+    "settings_visible_fields_title": {
+        "de": "Sichtbare Felder",
+        "en": "Visible Fields",
+    },
+    "settings_visible_fields_hint": {
+        "de": "Wähle einzelne optionale Felder aus, die in der Übersicht und "
+              "im Formular angezeigt werden — ohne alle erweiterten Reifendaten aktivieren zu müssen.",
+        "en": "Select individual optional fields to display in the overview and "
+              "form — without enabling all extended tire details.",
+    },
+    "field_tire_manufacturer":  {"de": "Reifenhersteller",          "en": "Tire manufacturer"},
+    "field_tire_size":          {"de": "Reifengröße",               "en": "Tire size"},
+    "field_tire_age":           {"de": "Reifenalter / DOT",         "en": "Tire age / DOT"},
+    "field_season":             {"de": "Saison",                    "en": "Season"},
+    "field_rim_type":           {"de": "Felgenart",                 "en": "Rim type"},
+    "field_exchange_note":      {"de": "Wechselhinweis",            "en": "Exchange note"},
+
+    # ── Tire renewal ───────────────────────────────────────────────
+    "wf_tires_need_renewal": {
+        "de": "Reifen erneuerungsbedürftig",
+        "en": "Tires need renewal",
+    },
+    "wf_tires_need_renewal_hint": {
+        "de": "Markiert diesen Radsatz als erneuerungsbedürftig (sichtbar in der Übersicht).",
+        "en": "Marks this wheel set as needing tire renewal (visible in the overview).",
+    },
+    "wl_renewal_badge": {
+        "de": "Erneuerung nötig",
+        "en": "Renewal needed",
+    },
+    "wl_filter_renewal":        {"de": "Erneuerung nötig",     "en": "Renewal needed"},
+
     # ── Update banner ─────────────────────────────────────────────
     "banner_new_version":   {"de": "Neue Version",          "en": "New version"},
     "banner_available":     {"de": "verfügbar!",            "en": "available!"},
