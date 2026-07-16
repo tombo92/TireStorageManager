@@ -165,8 +165,7 @@ CI signing is automatic when the `CODE_SIGN_PFX_BASE64` and `CODE_SIGN_PASSWORD`
 
 ## Versioning
 
-Versions follow `MAJOR.MINOR.PATCH`. `MAJOR` is only ever bumped manually.
-`MINOR` and `PATCH` are bumped automatically by CI:
+Versions follow `MAJOR.MINOR.PATCH`.
 
 - **Pushes to `develop`** always bump the patch version (`1.2.3` → `1.2.4`).
 - **Merges into `master`** are bump-type-aware, based on the **name of the
@@ -174,6 +173,7 @@ Versions follow `MAJOR.MINOR.PATCH`. `MAJOR` is only ever bumped manually.
 
   | Branch prefix | Bump | Example |
   |---|---|---|
+  | `major/…`, `breaking/…` | **major** (`1.2.3` → `2.0.0`) | `major/v2-redesign` |
   | `feat/…`, `feature/…` | **minor** (`1.2.3` → `1.3.0`) | `feat/recipes` |
   | `fix/…`, `bugfix/…`, `hotfix/…` | **patch** (`1.2.3` → `1.2.4`) | `fix/installer-crash` |
   | anything else, or a direct push (no PR) | **minor** (safe default) | — |
@@ -181,8 +181,22 @@ Versions follow `MAJOR.MINOR.PATCH`. `MAJOR` is only ever bumped manually.
   Detection logic lives in `tools/detect_bump_type.py` (fully unit-tested,
   no GitHub Actions dependency). Squash-merged PRs lose the branch name in
   their commit message, so they also fall back to the minor-bump default —
-  prefer "Create a merge commit" for `master` PRs if you want patch bumps
-  to take effect.
+  prefer "Create a merge commit" for `master` PRs if you want patch or
+  major bumps to take effect.
+
+  **When to use `major/**` / `breaking/**`:** reserve this for changes that
+  are not safe for an existing installation to silently auto-update into —
+  a breaking database/config change, a removed feature, or a large-enough
+  UI/UX overhaul that users should be made aware of before updating (the
+  self-updater applies new versions automatically; a major bump is the
+  signal that "this one is different"). Since the auto-updater doesn't
+  currently gate on version jumps, treat the `major/**` prefix as a
+  deliberate, manual decision — name the feature/release branch
+  accordingly when you know ahead of time that the change qualifies, then
+  merge it into `master` via a regular PR merge commit as usual. There is
+  no separate manual step: `tools/bump_version.py --major` (also usable
+  standalone, e.g. `python tools/bump_version.py --major`) resets both
+  `MINOR` and `PATCH` to `0`, exactly like `--minor` resets `PATCH`.
 
 ---
 

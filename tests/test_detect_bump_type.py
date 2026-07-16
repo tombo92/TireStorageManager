@@ -71,6 +71,18 @@ class TestDetectBumpType:
         msg = "Merge pull request #6 from tombo92/feature/dark-mode"
         assert detect_bump_type(msg) == "minor"
 
+    def test_major_prefix_is_major(self):
+        msg = "Merge pull request #10 from tombo92/major/v2-redesign"
+        assert detect_bump_type(msg) == "major"
+
+    def test_breaking_prefix_is_major(self):
+        msg = "Merge pull request #11 from tombo92/breaking/new-db-schema"
+        assert detect_bump_type(msg) == "major"
+
+    def test_nested_major_path_is_major(self):
+        msg = "Merge pull request #12 from tombo92/major/ui/full-redesign"
+        assert detect_bump_type(msg) == "major"
+
     def test_unrecognized_prefix_defaults_to_minor(self):
         msg = "Merge pull request #7 from tombo92/improve-search-function"
         assert detect_bump_type(msg) == "minor"
@@ -92,12 +104,29 @@ class TestDetectBumpType:
         msg = "Merge pull request #8 from tombo92/Fix/typo"
         assert detect_bump_type(msg) == "minor"
 
+    def test_major_prefix_takes_precedence_over_fix_substring(self):
+        """A branch that merely contains 'fix' after 'major/' must still
+        be classified as major, not patch (prefix match, not substring)."""
+        msg = "Merge pull request #13 from tombo92/major/fix-everything"
+        assert detect_bump_type(msg) == "major"
+
 
 class TestMainCli:
     def test_prints_patch_for_bugfix_branch(self, capsys):
         rc = main(["Merge pull request #1 from tombo92/fix/crash"])
         assert rc == 0
         assert capsys.readouterr().out.strip() == "patch"
+
+    def test_prints_major_for_major_branch(self, capsys):
+        rc = main(["Merge pull request #2 from tombo92/major/v2-redesign"])
+        assert rc == 0
+        assert capsys.readouterr().out.strip() == "major"
+
+    def test_prints_major_for_breaking_branch(self, capsys):
+        rc = main(["Merge pull request #3 from tombo92/breaking/new-api"])
+        assert rc == 0
+        assert capsys.readouterr().out.strip() == "major"
+
 
     def test_prints_minor_for_feature_branch(self, capsys):
         rc = main(["Merge pull request #2 from tombo92/feat/recipes"])

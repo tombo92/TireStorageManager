@@ -7,13 +7,17 @@
 Bump VERSION="x.y.z" in config.py.
 
 Versioning scheme:
-  x  – major: updated manually only
+  x  – major: bumped for breaking changes / big feature rollouts, via
+           the `major/**` or `breaking/**` branch-prefix convention on
+           master (see tools/detect_bump_type.py), or explicitly with
+           the --major flag. Resets minor and patch to 0.
   y  – minor: bumped on every push to master  (--minor flag, resets z to 0)
   z  – patch: bumped on every push to develop (default, no flag)
 
 Usage:
   python tools/bump_version.py           # patch bump:  1.2.3 → 1.2.4
   python tools/bump_version.py --minor   # minor bump:  1.2.3 → 1.3.0
+  python tools/bump_version.py --major   # major bump:  1.2.3 → 2.0.0
 """
 # ========================================================
 # IMPORTS
@@ -98,6 +102,11 @@ def main() -> int:
         "--minor", action="store_true",
         help="Bump minor version and reset patch to 0 (push to main)",
     )
+    parser.add_argument(
+        "--major", action="store_true",
+        help="Bump major version and reset minor+patch to 0 "
+             "(breaking changes / big feature rollouts)",
+    )
     args = parser.parse_args()
 
     if not CONFIG_PATH.exists():
@@ -113,7 +122,11 @@ def main() -> int:
     pre, major, minor, patch, post = m.groups()
     major, minor, patch = int(major), int(minor), int(patch)
 
-    if args.minor:
+    if args.major:
+        major += 1
+        minor = 0
+        patch = 0
+    elif args.minor:
         minor += 1
         patch = 0
     else:

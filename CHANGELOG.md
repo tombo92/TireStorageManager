@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Branch-aware version bumping on `master`** — merging a `feat/**`/`feature/**` branch now bumps the minor version as before (`1.2.3` → `1.3.0`), but merging a `fix/**`/`bugfix/**`/`hotfix/**` branch now only bumps the patch version (`1.2.3` → `1.2.4`) instead of always jumping the minor version. Detection is based on the merged PR's source branch name and implemented in `tools/detect_bump_type.py` (fully unit-tested). See README "Versioning" for the full convention and fallback behaviour.
+- **Major version bumps now supported by tooling** — merging a `major/**`/`breaking/**` branch into `master` bumps the major version (`1.2.3` → `2.0.0`), resetting minor and patch to 0. Previously `MAJOR` could only be changed by hand-editing `config.py`. `tools/bump_version.py` gained a `--major` flag; `tools/detect_bump_type.py` recognises the new branch prefixes. See README "Versioning" for guidance on when to use it.
 
 ### Added
 - **Impressum links** — added a link to the developer's personal website (tombra.ddns.net) and an official "Buy Me a Coffee" button (buymeacoffee.com/tombra), both purely optional/supportive, clearly marked as free-to-use software.
