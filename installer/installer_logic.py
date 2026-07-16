@@ -1360,7 +1360,7 @@ def verify_service_health(
                     log(f"   ✓ Datenbank: {ws_count} Radsätze vorhanden")
             else:
                 if log:
-                    log(f"   ⚠ Datenbank: leer (0 Radsätze)")
+                    log("   ⚠ Datenbank: leer (0 Radsätze)")
         except Exception as e:
             if log:
                 log(f"   ✗ Datenbank-Prüfung fehlgeschlagen: {e}")

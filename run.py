@@ -40,7 +40,9 @@ from tsm.app import create_app  # noqa: E402
 from tsm.backup_manager import BackupManager  # noqa: E402
 from tsm.db import engine  # noqa: E402
 from tsm.self_update import (  # noqa: E402
-    check_for_update, read_update_marker, rollback_update,
+    check_for_update,
+    read_update_marker,
+    rollback_update,
 )
 
 # ========================================================
