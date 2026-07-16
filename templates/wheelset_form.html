@@ -58,31 +58,42 @@
         <textarea class="form-control" name="note" rows="3">{{ (w.note or '') if w else '' }}</textarea>
     </div>
 
-    {% if settings.enable_tire_details %}
-    {# ── Extended tire detail fields ── #}
+    {% set tire_fields = ['tire_manufacturer', 'tire_size', 'tire_age',
+                          'season', 'rim_type', 'exchange_note'] %}
+    {% set show_tire_section = tire_fields | select('in', settings.visible_fields)
+                              | list | length > 0 or settings.enable_tire_details %}
+    {% if show_tire_section %}
+    {# ── Extended tire detail fields (per-field visibility) ── #}
     <div class="col-12">
         <hr class="my-1">
         <h6 class="text-body-secondary mb-3">
             <i class="bi bi-speedometer me-1"></i>{{ _("wf_tire_details_section") }}
         </h6>
     </div>
+    {% if settings.is_field_visible('tire_manufacturer') %}
     <div class="col-md-4">
         <label class="form-label">{{ _("wf_tire_manufacturer") }}</label>
         <input type="text" class="form-control" name="tire_manufacturer"
                value="{{ (w.tire_manufacturer or '') if w else '' }}">
     </div>
+    {% endif %}
+    {% if settings.is_field_visible('tire_size') %}
     <div class="col-md-4">
         <label class="form-label">{{ _("wf_tire_size") }}</label>
         <input type="text" class="form-control" name="tire_size"
                placeholder="205/55 R16"
                value="{{ (w.tire_size or '') if w else '' }}">
     </div>
+    {% endif %}
+    {% if settings.is_field_visible('tire_age') %}
     <div class="col-md-4">
         <label class="form-label">{{ _("wf_tire_age") }}</label>
         <input type="text" class="form-control" name="tire_age"
                placeholder="2021"
                value="{{ (w.tire_age or '') if w else '' }}">
     </div>
+    {% endif %}
+    {% if settings.is_field_visible('season') %}
     <div class="col-md-6">
         <label class="form-label">{{ _("wf_season") }}</label>
         <select class="form-select" name="season">
@@ -92,6 +103,8 @@
             <option value="allwetter"  {% if w and w.season == 'allwetter' %}selected{% endif %}>{{ _("wf_season_allwetter") }}</option>
         </select>
     </div>
+    {% endif %}
+    {% if settings.is_field_visible('rim_type') %}
     <div class="col-md-6">
         <label class="form-label">{{ _("wf_rim_type") }}</label>
         <select class="form-select" name="rim_type">
@@ -100,11 +113,29 @@
             <option value="alu"    {% if w and w.rim_type == 'alu' %}selected{% endif %}>{{ _("wf_rim_alu") }}</option>
         </select>
     </div>
+    {% endif %}
+    {% if settings.is_field_visible('exchange_note') %}
     <div class="col-12">
         <label class="form-label">{{ _("wf_exchange_note") }}</label>
         <textarea class="form-control" name="exchange_note" rows="2">{{ (w.exchange_note or '') if w else '' }}</textarea>
     </div>
     {% endif %}
+    {% endif %}
+
+    {# ── Tire renewal flag (always shown) ── #}
+    <div class="col-12">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="tires_need_renewal"
+                   value="1" id="tiresNeedRenewal"
+                   {{ 'checked' if w and w.tires_need_renewal else '' }}>
+            <label class="form-check-label" for="tiresNeedRenewal">
+                <i class="bi bi-exclamation-diamond me-1 text-warning"></i>{{ _("wf_tires_need_renewal") }}
+            </label>
+            <small class="text-body-secondary d-block mt-1">
+                {{ _("wf_tires_need_renewal_hint") }}
+            </small>
+        </div>
+    </div>
 
     <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle"></i> {{ _("wf_save") }}</button>

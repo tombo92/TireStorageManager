@@ -102,7 +102,7 @@
         <table>
             <thead>
                 <tr class="section-header section-{{ group.type }}">
-                    <th colspan="7">{{ group.label }} &ndash; {{ group.rows | length }} Radsätze</th>
+                    <th colspan="8">{{ group.label }} &ndash; {{ group.rows | length }} Radsätze</th>
                 </tr>
                 <tr class="col-header">
                     <th class="num-col">Nr.</th>
@@ -111,6 +111,7 @@
                     <th class="plate-col">Kennzeichen</th>
                     <th>Fahrzeug</th>
                     <th>Notiz</th>
+                    <th style="width:28px;text-align:center" title="Erneuerung / Renewal">&#x26A0;</th>
                     <th class="check-col">&#x2713;</th>
                 </tr>
             </thead>
@@ -123,6 +124,7 @@
                     <td class="plate-col">{{ row.license_plate }}</td>
                     <td>{{ row.car_type }}</td>
                     <td>{{ row.note or "" }}</td>
+                    <td style="text-align:center;color:#b45309;font-weight:bold">{{ "⚠" if row.tires_need_renewal else "" }}</td>
                     <td class="check-col"></td>
                 </tr>
                 {% endfor %}

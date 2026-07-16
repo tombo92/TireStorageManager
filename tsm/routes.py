@@ -91,6 +91,40 @@ def _refresh_dark_mode() -> None:
 
 
 # ========================================================
+# TIRE-FIELD PERSISTENCE HELPER
+# ========================================================
+
+def _apply_optional_tire_fields(w, s) -> None:
+    """Persist optional tire-detail fields onto *w* from the request form.
+
+    Each field is only written when it is visible per the current
+    settings (``s.is_field_visible(field)``) — i.e. either the global
+    ``enable_tire_details`` flag is on, or the field is individually
+    selected via ``visible_fields``.  Fields that are not visible are
+    left untouched so hidden inputs cannot be tampered with.
+    """
+    if s.is_field_visible("tire_manufacturer"):
+        w.tire_manufacturer = (
+            request.form.get("tire_manufacturer", "").strip() or None
+        )
+    if s.is_field_visible("tire_size"):
+        w.tire_size = request.form.get("tire_size", "").strip() or None
+    if s.is_field_visible("tire_age"):
+        w.tire_age = request.form.get("tire_age", "").strip() or None
+    if s.is_field_visible("season"):
+        season = request.form.get("season", "").strip()
+        w.season = season if season in (
+            "sommer", "winter", "allwetter") else None
+    if s.is_field_visible("rim_type"):
+        rim = request.form.get("rim_type", "").strip()
+        w.rim_type = rim if rim in ("stahl", "alu") else None
+    if s.is_field_visible("exchange_note"):
+        w.exchange_note = (
+            request.form.get("exchange_note", "").strip() or None
+        )
+
+
+# ========================================================
 # ROUTE HANDLERS
 # ========================================================
 
@@ -148,6 +182,7 @@ def list_wheelsets():
         sort = request.args.get("sort", "updated_desc")
         filter_pos = request.args.get("filter_pos", "")
         filter_season = request.args.get("filter_season", "")
+        filter_renewal = request.args.get("filter_renewal", "")
 
         query = db.query(WheelSet)
         if q:
@@ -164,6 +199,8 @@ def list_wheelsets():
             query = query.filter(WheelSet.storage_position.like("GR%"))
         if filter_season:
             query = query.filter(WheelSet.season == filter_season)
+        if filter_renewal == "1":
+            query = query.filter(WheelSet.tires_need_renewal == True)  # noqa: E712
 
         sort_map = {
             "updated_desc":  WheelSet.updated_at.desc(),
@@ -180,7 +217,7 @@ def list_wheelsets():
         s = get_or_create_settings(db)
 
         overdue_ids: set[int] = set()
-        if s.enable_tire_details:
+        if s.is_field_visible("season"):
             month = datetime.now().month
             due_season = overdue_season(month)
             if due_season is not None:
@@ -197,6 +234,7 @@ def list_wheelsets():
             sort=sort,
             filter_pos=filter_pos,
             filter_season=filter_season,
+            filter_renewal=filter_renewal,
         )
     finally:
         SessionLocal.remove()
@@ -252,26 +290,11 @@ def create_wheelset():
                 note=note,
                 storage_position=storage_position
             )
-            if s.enable_tire_details:
-                w.tire_manufacturer = (
-                    request.form.get("tire_manufacturer", "")
-                    .strip() or None
-                )
-                w.tire_size = (
-                    request.form.get("tire_size", "").strip() or None
-                )
-                w.tire_age = (
-                    request.form.get("tire_age", "").strip() or None
-                )
-                season = request.form.get("season", "").strip()
-                w.season = season if season in (
-                    "sommer", "winter", "allwetter") else None
-                rim = request.form.get("rim_type", "").strip()
-                w.rim_type = rim if rim in ("stahl", "alu") else None
-                w.exchange_note = (
-                    request.form.get("exchange_note", "")
-                    .strip() or None
-                )
+            # Tire renewal flag — always accepted
+            w.tires_need_renewal = (
+                request.form.get("tires_need_renewal") == "1"
+            )
+            _apply_optional_tire_fields(w, s)
             db.add(w)
             try:
                 db.commit()
@@ -353,26 +376,12 @@ def edit_wheelset(wid):
             w.note = note
             w.storage_position = storage_position
 
-            if s.enable_tire_details:
-                w.tire_manufacturer = (
-                    request.form.get("tire_manufacturer", "")
-                    .strip() or None
-                )
-                w.tire_size = (
-                    request.form.get("tire_size", "").strip() or None
-                )
-                w.tire_age = (
-                    request.form.get("tire_age", "").strip() or None
-                )
-                season = request.form.get("season", "").strip()
-                w.season = season if season in (
-                    "sommer", "winter", "allwetter") else None
-                rim = request.form.get("rim_type", "").strip()
-                w.rim_type = rim if rim in ("stahl", "alu") else None
-                w.exchange_note = (
-                    request.form.get("exchange_note", "")
-                    .strip() or None
-                )
+            # Tire renewal flag — always accepted
+            w.tires_need_renewal = (
+                request.form.get("tires_need_renewal") == "1"
+            )
+
+            _apply_optional_tire_fields(w, s)
 
             try:
                 db.commit()
@@ -473,6 +482,11 @@ def settings():
                         "enable_seasonal_tracking") == "1"
                     and s.enable_tire_details
                 )
+                # Visible fields — only update when this specific form
+                # was submitted (sentinel present), so other settings
+                # forms on the page don't clear the saved selection.
+                if request.form.get("_visible_fields_submitted") == "1":
+                    s.visible_fields = request.form.getlist("visible_fields")
                 db.commit()
                 g._tsm_locale = s.language
                 _refresh_dark_mode()

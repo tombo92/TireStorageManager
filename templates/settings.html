@@ -131,6 +131,42 @@
             </small>
         </form>
         {% endif %}
+
+        <!-- Visible fields (individual field toggles) -->
+        {% if not s.enable_tire_details %}
+        <hr class="my-3">
+        <h6 class="text-body-secondary mb-2">
+            <i class="bi bi-eye me-1"></i> {{ _("settings_visible_fields_title") }}
+        </h6>
+        <small class="text-body-secondary d-block mb-3">
+            {{ _("settings_visible_fields_hint") }}
+        </small>
+        <form method="post">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="_visible_fields_submitted" value="1">
+            <input type="hidden" name="backup_interval_minutes" value="{{ s.backup_interval_minutes }}">
+            <input type="hidden" name="backup_copies" value="{{ s.backup_copies }}">
+            <input type="hidden" name="dark_mode" value="{{ '1' if s.dark_mode else '0' }}">
+            <input type="hidden" name="auto_update" value="{{ '1' if s.auto_update else '0' }}">
+            <input type="hidden" name="language" value="{{ s.language }}">
+            <input type="hidden" name="enable_tire_details" value="0">
+            <input type="hidden" name="enable_seasonal_tracking" value="{{ '1' if s.enable_seasonal_tracking else '0' }}">
+            {% set current_visible = s.visible_fields %}
+            {% for field_key in s.OPTIONAL_FIELDS %}
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="visible_fields"
+                       value="{{ field_key }}" id="vf_{{ field_key }}"
+                       {{ 'checked' if field_key in current_visible else '' }}>
+                <label class="form-check-label" for="vf_{{ field_key }}">
+                    {{ _("field_" + field_key) }}
+                </label>
+            </div>
+            {% endfor %}
+            <button class="btn btn-sm btn-primary mt-2">
+                <i class="bi bi-save2"></i> {{ _("settings_save") }}
+            </button>
+        </form>
+        {% endif %}
     </div>
 </div>
 

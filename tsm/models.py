@@ -44,6 +44,8 @@ class WheelSet(Base):
     # rim_type: 'stahl', 'alu'
     rim_type = Column(String(20), nullable=True)
     exchange_note = Column(Text, nullable=True)
+    # Tire renewal flag — highlighted in all overviews, filterable
+    tires_need_renewal = Column(Boolean, nullable=False, default=False)
 
     created_at = Column(DateTime, default=lambda: datetime.now(UTC),
                         nullable=False)
@@ -71,9 +73,48 @@ class Settings(Base):
     custom_positions_json = Column(Text, nullable=True)
     enable_tire_details = Column(Boolean, nullable=False, default=False)
     enable_seasonal_tracking = Column(Boolean, nullable=False, default=False)
+    # JSON list of individually enabled optional field names (when
+    # enable_tire_details is False).  Empty/null = only defaults shown.
+    # Valid keys: tire_manufacturer, tire_size, tire_age, season,
+    # rim_type, exchange_note (see Settings.OPTIONAL_FIELDS)
+    visible_fields_json = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(UTC),
                         onupdate=lambda: datetime.now(UTC),
                         nullable=False)
+
+    # All optional field keys that can be individually toggled.
+    # "note" is excluded — it is always visible as a core field.
+    OPTIONAL_FIELDS = (
+        "tire_manufacturer", "tire_size", "tire_age",
+        "season", "rim_type", "exchange_note",
+    )
+
+    @property
+    def visible_fields(self) -> list[str]:
+        """Return list of individually enabled optional field names."""
+        import json
+        if not self.visible_fields_json:
+            return []
+        try:
+            return json.loads(self.visible_fields_json)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    @visible_fields.setter
+    def visible_fields(self, fields: list[str]) -> None:
+        import json
+        valid = [f for f in fields if f in self.OPTIONAL_FIELDS]
+        self.visible_fields_json = json.dumps(valid) if valid else None
+
+    def is_field_visible(self, field: str) -> bool:
+        """Check if a specific optional field should be shown.
+
+        When enable_tire_details is True, ALL fields are visible.
+        Otherwise, only individually selected fields are visible.
+        """
+        if self.enable_tire_details:
+            return True
+        return field in self.visible_fields
 
 
 class AuditLog(Base):
