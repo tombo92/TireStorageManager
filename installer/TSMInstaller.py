@@ -533,14 +533,15 @@ class InstallerApp(tk.Tk):
             font=("Segoe UI", 10, "bold"),
         ).pack(side="left", padx=10, pady=(5, 2))
 
-        # Row 2 – data note on the left, action buttons on the right
+        # Row 2 – data note + server hint, action buttons on the right
         row2 = tk.Frame(self._update_frame, bg=BG_UPDATE)
         row2.pack(fill="x")
         tk.Label(
             row2,
-            text="  Ihre Daten (DB, Backups, Logs) bleiben vollständig erhalten.",
-            bg=BG_UPDATE, fg="#bbf7d0",
-            font=("Segoe UI", 9),
+            text="  ⚠ Update nur auf dem Server-PC ausführen, "
+                 "nicht auf einem Client-Arbeitsplatz!",
+            bg=BG_UPDATE, fg="#fde68a",
+            font=("Segoe UI", 9, "bold"),
         ).pack(side="left", padx=10, pady=(2, 5))
         tk.Button(
             row2, text="Infos & Changelog",
@@ -623,6 +624,21 @@ class InstallerApp(tk.Tk):
                 "Ihre Datenbank, Backups und Logs bleiben dabei "
                 "vollständig erhalten.\n\n"
                 "Fortfahren?",
+                icon="warning",
+            ):
+                return
+        elif not self.dev_mode and not logic.service_exists():
+            # Fresh install on a machine without an existing service —
+            # warn in case the user intended to update a different server.
+            if not messagebox.askyesno(
+                "Neuinstallation",
+                "Auf diesem Computer ist kein bestehender "
+                f"'{SERVICE_NAME}'-Dienst registriert.\n\n"
+                "Dies ist eine Neuinstallation mit einer leeren Datenbank.\n\n"
+                "Falls Sie einen bestehenden Server aktualisieren möchten, "
+                "starten Sie den Installer bitte auf dem Server-PC "
+                "(nicht auf einem Client-Arbeitsplatz).\n\n"
+                "Wirklich hier neu installieren?",
                 icon="warning",
             ):
                 return
@@ -1870,6 +1886,13 @@ class DiagnosticWindow(tk.Toplevel):
 
     Opened by pressing '###' while the installer is in admin mode.
     All checks are read-only — nothing is modified.
+
+    Includes a "Deploy Release" section that:
+    1. Fetches all available GitHub releases
+    2. Lets the user pick a version
+    3. Stops the service, downloads the EXE, deploys it, restarts
+    4. Verifies the service comes up (port + DB health)
+    5. Rolls back to the previous EXE on failure
     """
 
     _STATUS_ICONS = {"ok": "✅", "warn": "⚠️", "error": "❌"}
@@ -1878,8 +1901,12 @@ class DiagnosticWindow(tk.Toplevel):
     def __init__(self, parent: InstallerApp, install_dir: Path,
                  data_dir: Path):
         super().__init__(parent)
+        self._install_dir = install_dir
+        self._data_dir = data_dir
+        self._parent_app = parent
+
         self.title("🔧 Diagnose-Tool")
-        self.geometry("780x620")
+        self.geometry("800x720")
         self.configure(bg=BG_DARK)
         self.transient(parent)
         self.grab_set()
@@ -1903,6 +1930,47 @@ class DiagnosticWindow(tk.Toplevel):
             bg=BG_CARD, fg="#94a3b8",
             font=("Consolas", 9), justify="left",
         ).pack(anchor="w", padx=8, pady=4)
+
+        # ── Deploy Release section ──
+        deploy_card = tk.Frame(self, bg=BG_CARD)
+        deploy_card.pack(fill="x", padx=12, pady=(8, 0))
+        tk.Label(
+            deploy_card,
+            text="  🚀  Release deployen (Stop → Download → Deploy → Start → Verify)",
+            bg=BG_CARD, fg=ACCENT,
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", padx=8, pady=(6, 2))
+
+        deploy_row = tk.Frame(deploy_card, bg=BG_CARD)
+        deploy_row.pack(fill="x", padx=8, pady=(2, 8))
+
+        self._var_release = tk.StringVar(value="Releases laden …")
+        self._release_combo = ttk.Combobox(
+            deploy_row, textvariable=self._var_release,
+            state="disabled", width=45,
+            font=("Consolas", 9),
+        )
+        self._release_combo.pack(side="left")
+
+        self._btn_deploy = tk.Button(
+            deploy_row,
+            text="  ⬇ Deployen & Verifizieren  ",
+            font=("Segoe UI", 9, "bold"),
+            bg=SUCCESS, fg="white", relief="flat",
+            state="disabled",
+            command=self._on_deploy,
+        )
+        self._btn_deploy.pack(side="left", padx=(8, 0))
+
+        self._deploy_status = tk.Label(
+            deploy_card, text="",
+            bg=BG_CARD, fg="#94a3b8",
+            font=("Segoe UI", 9),
+            anchor="w",
+        )
+        self._deploy_status.pack(anchor="w", padx=8, pady=(0, 4))
+
+        self._releases: list[dict] = []
 
         # Scrollable results area
         container = tk.Frame(self, bg=BG_DARK)
@@ -1948,6 +2016,102 @@ class DiagnosticWindow(tk.Toplevel):
 
         self._checks: list[dict] = []
         self._run_checks(install_dir, data_dir)
+        self._fetch_releases_async()
+
+    def _fetch_releases_async(self) -> None:
+        """Fetch available releases in a background thread."""
+        threading.Thread(target=self._fetch_releases_worker,
+                         daemon=True).start()
+
+    def _fetch_releases_worker(self) -> None:
+        releases = logic.fetch_all_releases()
+        self.after(0, self._populate_releases, releases)
+
+    def _populate_releases(self, releases: list[dict]) -> None:
+        self._releases = [r for r in releases if r.get("app_url")]
+        if not self._releases:
+            self._var_release.set("Keine Releases mit EXE gefunden")
+            return
+        values = []
+        for r in self._releases:
+            pre = " [PRE]" if r.get("prerelease") else ""
+            values.append(
+                f"v{r['version']}  ({r['published']}){pre}")
+        self._release_combo.configure(values=values, state="readonly")
+        self._var_release.set(values[0])
+        self._btn_deploy.configure(state="normal")
+
+    def _on_deploy(self) -> None:
+        """Deploy the selected release version."""
+        idx = self._release_combo.current()
+        if idx < 0 or idx >= len(self._releases):
+            return
+        release = self._releases[idx]
+        version = release["version"]
+        app_url = release["app_url"]
+
+        if not messagebox.askyesno(
+            "Release deployen",
+            f"Version v{version} wird heruntergeladen und installiert.\n\n"
+            "Der Dienst wird gestoppt, die EXE ersetzt, und der Dienst "
+            "neu gestartet. Bei Fehlern wird automatisch auf die "
+            "vorherige Version zurückgewechselt.\n\n"
+            "Fortfahren?",
+            parent=self,
+        ):
+            return
+
+        self._btn_deploy.configure(state="disabled")
+        self._release_combo.configure(state="disabled")
+        self._deploy_log_lines: list[str] = []
+        threading.Thread(
+            target=self._deploy_worker,
+            args=(app_url, version),
+            daemon=True,
+        ).start()
+
+    def _deploy_worker(self, app_url: str, version: str) -> None:
+        def log_line(msg: str) -> None:
+            self._deploy_log_lines.append(msg)
+            self.after(0, self._update_deploy_status, msg)
+
+        ok = logic.deploy_release(
+            app_url=app_url,
+            install_dir=self._install_dir,
+            data_dir=self._data_dir,
+            log=log_line,
+        )
+        self.after(0, self._deploy_finished, ok, version)
+
+    def _update_deploy_status(self, msg: str) -> None:
+        self._deploy_status.configure(text=msg)
+
+    def _deploy_finished(self, ok: bool, version: str) -> None:
+        self._btn_deploy.configure(state="normal")
+        self._release_combo.configure(state="readonly")
+
+        # Re-run checks to show current state
+        self._run_checks(self._install_dir, self._data_dir)
+
+        if ok:
+            messagebox.showinfo(
+                "Deployment erfolgreich",
+                f"Version v{version} wurde erfolgreich installiert "
+                "und verifiziert.\n\n"
+                "Der Dienst läuft und die Datenbank ist erreichbar.",
+                parent=self,
+            )
+        else:
+            # Attempt rollback
+            log_lines = "\n".join(self._deploy_log_lines[-6:])
+            messagebox.showerror(
+                "Deployment fehlgeschlagen",
+                f"Version v{version} konnte nicht verifiziert werden.\n\n"
+                "Die vorherige Version wird wiederhergestellt. "
+                "Bitte prüfen Sie die Diagnose-Ergebnisse.\n\n"
+                f"Letzte Meldungen:\n{log_lines}",
+                parent=self,
+            )
 
     def _run_checks(self, install_dir: Path, data_dir: Path) -> None:
         """Run all diagnostic checks and display results."""

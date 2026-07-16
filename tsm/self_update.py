@@ -233,12 +233,16 @@ def _swap_exe(current: Path, new_exe: Path) -> bool:
 
 
 def _restart_service():
-    """Ask NSSM / sc.exe to restart the service (async)."""
+    """Ask NSSM / sc.exe to restart the service (async).
+
+    Uses an 8-second pause between stop and start to ensure the old
+    process has fully released file handles (SQLite DB, log files).
+    """
     # Use cmd /c so the restart happens in a detached process;
     # the current process (old EXE) can exit cleanly.
     restart_cmd = (
         f'cmd /c "sc.exe stop {SERVICE_NAME} & '
-        f'timeout /t 3 /nobreak >nul & '
+        f'timeout /t 8 /nobreak >nul & '
         f'sc.exe start {SERVICE_NAME}"'
     )
     log.info("Scheduling service restart ...")
@@ -266,6 +270,68 @@ def _cleanup_old_exe():
             log.info("Cleaned up old EXE: %s", old.name)
         except OSError:
             pass  # still locked — will be cleaned next time
+
+
+def _write_update_marker(old_version: str, new_version: str) -> None:
+    """Write a marker file so the new process can detect it just updated."""
+    marker = _current_exe().with_suffix(".update_marker")
+    try:
+        marker.write_text(
+            f"{old_version}\n{new_version}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def read_update_marker() -> tuple[str, str] | None:
+    """Read and remove the update marker file.
+
+    Returns (old_version, new_version) if a marker exists, else None.
+    Called by run.py on startup to detect a post-update launch.
+    """
+    if not _is_frozen():
+        return None
+    marker = _current_exe().with_suffix(".update_marker")
+    if not marker.exists():
+        return None
+    try:
+        lines = marker.read_text(encoding="utf-8").strip().splitlines()
+        marker.unlink(missing_ok=True)
+        if len(lines) >= 2:
+            return (lines[0].strip(), lines[1].strip())
+    except OSError:
+        pass
+    return None
+
+
+def rollback_update() -> bool:
+    """Roll back to the previous EXE version (.exe.old).
+
+    Renames current.exe → current.exe.failed, then
+    renames current.exe.old → current.exe, and schedules a restart.
+
+    Returns True if rollback was performed.
+    """
+    if not _is_frozen():
+        return False
+    current = _current_exe()
+    old = current.with_suffix(".exe.old")
+    if not old.exists():
+        log.warning("No .exe.old found — cannot roll back.")
+        return False
+    failed = current.with_suffix(".exe.failed")
+    try:
+        if failed.exists():
+            failed.unlink()
+        os.rename(current, failed)
+        os.rename(old, current)
+        log.info("Rolled back: %s restored from .exe.old", current.name)
+        _restart_service()
+        return True
+    except OSError as e:
+        log.error("Rollback failed: %s", e)
+        return False
 
 
 # ── Public API ───────────────────────────────────────────
@@ -432,6 +498,9 @@ def check_for_update() -> bool:
         if not _swap_exe(current, tmp_file):
             tmp_file.unlink(missing_ok=True)
             return False
+
+        # Write marker so new process can verify and rollback if needed
+        _write_update_marker(local_version, remote_version)
 
         log.info(
             "OK: Updated %s -> %s. Restarting service ...",
