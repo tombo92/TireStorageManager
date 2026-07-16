@@ -163,6 +163,29 @@ CI signing is automatic when the `CODE_SIGN_PFX_BASE64` and `CODE_SIGN_PASSWORD`
 
 ---
 
+## Versioning
+
+Versions follow `MAJOR.MINOR.PATCH`. `MAJOR` is only ever bumped manually.
+`MINOR` and `PATCH` are bumped automatically by CI:
+
+- **Pushes to `develop`** always bump the patch version (`1.2.3` → `1.2.4`).
+- **Merges into `master`** are bump-type-aware, based on the **name of the
+  merged branch** (via GitHub's default "Create a merge commit" PR strategy):
+
+  | Branch prefix | Bump | Example |
+  |---|---|---|
+  | `feat/…`, `feature/…` | **minor** (`1.2.3` → `1.3.0`) | `feat/recipes` |
+  | `fix/…`, `bugfix/…`, `hotfix/…` | **patch** (`1.2.3` → `1.2.4`) | `fix/installer-crash` |
+  | anything else, or a direct push (no PR) | **minor** (safe default) | — |
+
+  Detection logic lives in `tools/detect_bump_type.py` (fully unit-tested,
+  no GitHub Actions dependency). Squash-merged PRs lose the branch name in
+  their commit message, so they also fall back to the minor-bump default —
+  prefer "Create a merge commit" for `master` PRs if you want patch bumps
+  to take effect.
+
+---
+
 ## Running Tests
 
 ```bash
