@@ -836,3 +836,279 @@ def remove_data_dir(
         log(f"   ✓ Datenverzeichnis entfernt: {data_dir}")
     elif log:
         log(f"   ⚠ Bitte manuell entfernen: {data_dir}")
+
+
+# ========================================================
+# DIAGNOSTIC TOOL (hidden dev panel – triggered by '###')
+# ========================================================
+def diagnose(
+    install_dir: Path,
+    data_dir: Path,
+) -> list[dict]:
+    """Collect diagnostic information about a TSM installation.
+
+    Returns a list of check results, each a dict with:
+        label (str): human-readable check name
+        status (str): 'ok', 'warn', 'error'
+        detail (str): human-readable detail text
+
+    Designed for the hidden '###' diagnostic panel in the installer GUI.
+    All checks are read-only and safe.
+    """
+    checks: list[dict] = []
+
+    # 1. Service status
+    svc = _diag_service_status()
+    checks.append(svc)
+
+    # 2. Service config (NSSM AppParameters, AppEnvironmentExtra)
+    nssm_path = install_dir / "nssm.exe"
+    checks.extend(_diag_nssm_config(nssm_path))
+
+    # 3. Install directory
+    checks.append(_diag_dir_exists("Install-Verzeichnis", install_dir))
+    app_exe = install_dir / f"{APP_NAME}.exe"
+    checks.append(_diag_file_exists("TireStorageManager.exe", app_exe))
+    checks.append(_diag_file_exists("nssm.exe", nssm_path))
+
+    # 4. Data directory
+    checks.append(_diag_dir_exists("Daten-Verzeichnis", data_dir))
+    db_path = data_dir / "db" / "wheel_storage.db"
+    checks.append(_diag_db_file(db_path))
+
+    # 5. Log directory & recent log entries
+    log_dir = data_dir / "logs"
+    checks.append(_diag_dir_exists("Log-Verzeichnis", log_dir))
+    checks.extend(_diag_recent_logs(log_dir))
+
+    # 6. Backup directory
+    backup_dir = data_dir / "backups"
+    checks.append(_diag_backup_dir(backup_dir))
+
+    # 7. Port check
+    checks.extend(_diag_port_listening(data_dir))
+
+    # 8. Scheduled task
+    checks.append(_diag_scheduled_task())
+
+    return checks
+
+
+def _diag_service_status() -> dict:
+    """Check Windows service state via sc.exe."""
+    try:
+        r = run_cmd(["sc.exe", "query", SERVICE_NAME], check=False)
+        out = r.stdout
+        if "RUNNING" in out:
+            return {"label": "Dienst-Status", "status": "ok",
+                    "detail": "Dienst läuft (RUNNING)"}
+        if "STOPPED" in out:
+            return {"label": "Dienst-Status", "status": "error",
+                    "detail": "Dienst ist gestoppt (STOPPED)"}
+        if "STOP_PENDING" in out:
+            return {"label": "Dienst-Status", "status": "warn",
+                    "detail": "Dienst stoppt gerade (STOP_PENDING)"}
+        if "START_PENDING" in out:
+            return {"label": "Dienst-Status", "status": "warn",
+                    "detail": "Dienst startet gerade (START_PENDING)"}
+        return {"label": "Dienst-Status", "status": "warn",
+                "detail": f"Unbekannter Status:\n{out.strip()[:200]}"}
+    except Exception as e:
+        return {"label": "Dienst-Status", "status": "error",
+                "detail": f"Fehler: {e}"}
+
+
+def _diag_nssm_config(nssm: Path) -> list[dict]:
+    """Read NSSM service parameters to verify --data-dir is correct."""
+    results = []
+    if not nssm.exists():
+        results.append({"label": "NSSM Konfiguration", "status": "error",
+                        "detail": f"nssm.exe nicht gefunden: {nssm}"})
+        return results
+
+    # AppParameters (the command-line args passed to the EXE)
+    try:
+        r = run_cmd([str(nssm), "get", SERVICE_NAME, "AppParameters"],
+                    check=False)
+        params = r.stdout.strip()
+        if "--data-dir" in params:
+            results.append({"label": "NSSM AppParameters",
+                            "status": "ok",
+                            "detail": params})
+        else:
+            results.append({"label": "NSSM AppParameters",
+                            "status": "warn",
+                            "detail": f"--data-dir fehlt!\n{params}"})
+    except Exception as e:
+        results.append({"label": "NSSM AppParameters", "status": "error",
+                        "detail": str(e)})
+
+    # AppEnvironmentExtra (env vars passed to the service)
+    try:
+        r = run_cmd([str(nssm), "get", SERVICE_NAME,
+                     "AppEnvironmentExtra"], check=False)
+        env = r.stdout.strip()
+        if "TSM_DATA_DIR" in env:
+            results.append({"label": "NSSM Umgebungsvariablen",
+                            "status": "ok", "detail": env})
+        else:
+            results.append({"label": "NSSM Umgebungsvariablen",
+                            "status": "warn",
+                            "detail": f"TSM_DATA_DIR fehlt!\n{env}"})
+    except Exception as e:
+        results.append({"label": "NSSM Umgebungsvariablen",
+                        "status": "error", "detail": str(e)})
+
+    return results
+
+
+def _diag_dir_exists(label: str, path: Path) -> dict:
+    """Check if a directory exists."""
+    if path.exists() and path.is_dir():
+        return {"label": label, "status": "ok",
+                "detail": str(path)}
+    return {"label": label, "status": "error",
+            "detail": f"Nicht gefunden: {path}"}
+
+
+def _diag_file_exists(label: str, path: Path) -> dict:
+    """Check if a file exists and report its size."""
+    if path.exists() and path.is_file():
+        size_mb = path.stat().st_size / (1024 * 1024)
+        return {"label": label, "status": "ok",
+                "detail": f"{path.name} ({size_mb:.1f} MB)"}
+    return {"label": label, "status": "error",
+            "detail": f"Nicht gefunden: {path}"}
+
+
+def _diag_db_file(db_path: Path) -> dict:
+    """Check DB file exists, has data, and key tables are present."""
+    if not db_path.exists():
+        return {"label": "Datenbank", "status": "error",
+                "detail": f"Nicht gefunden: {db_path}"}
+    size_kb = db_path.stat().st_size / 1024
+    if size_kb < 1:
+        return {"label": "Datenbank", "status": "error",
+                "detail": f"Leer oder beschädigt ({size_kb:.1f} KB)"}
+    try:
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = {r[0] for r in cur.fetchall()}
+        ws_count = 0
+        if "wheel_sets" in tables:
+            cur.execute("SELECT COUNT(*) FROM wheel_sets")
+            ws_count = cur.fetchone()[0]
+        settings_count = 0
+        if "settings" in tables:
+            cur.execute("SELECT COUNT(*) FROM settings")
+            settings_count = cur.fetchone()[0]
+        conn.close()
+        expected = {"wheel_sets", "settings", "audit_log"}
+        missing = expected - tables
+        if missing:
+            return {"label": "Datenbank", "status": "warn",
+                    "detail": f"{size_kb:.0f} KB, "
+                              f"fehlende Tabellen: {', '.join(missing)}, "
+                              f"{ws_count} Radsätze"}
+        return {"label": "Datenbank", "status": "ok",
+                "detail": f"{size_kb:.0f} KB, "
+                          f"{ws_count} Radsätze, "
+                          f"Settings: {'✓' if settings_count else '✗'}, "
+                          f"Tabellen: {', '.join(sorted(tables))}"}
+    except Exception as e:
+        return {"label": "Datenbank", "status": "error",
+                "detail": f"{size_kb:.0f} KB, Lesefehler: {e}"}
+
+
+def _diag_recent_logs(log_dir: Path) -> list[dict]:
+    """Check for recent log files and report last few lines."""
+    results = []
+    if not log_dir.exists():
+        return results
+
+    for name in ("tsm.log", "service_stderr.log"):
+        path = log_dir / name
+        if not path.exists():
+            results.append({"label": f"Log: {name}", "status": "warn",
+                            "detail": "Datei nicht vorhanden"})
+            continue
+        try:
+            size_kb = path.stat().st_size / 1024
+            # Read last 5 lines
+            lines = path.read_text(encoding="utf-8", errors="replace"
+                                   ).splitlines()
+            tail = lines[-5:] if len(lines) > 5 else lines
+            has_error = any("error" in ln.lower() or "traceback" in ln.lower()
+                           for ln in tail)
+            status = "warn" if has_error else "ok"
+            detail = (f"{size_kb:.0f} KB, {len(lines)} Zeilen\n"
+                      f"Letzte Einträge:\n" + "\n".join(tail))
+            results.append({"label": f"Log: {name}", "status": status,
+                            "detail": detail})
+        except Exception as e:
+            results.append({"label": f"Log: {name}", "status": "error",
+                            "detail": str(e)})
+    return results
+
+
+def _diag_backup_dir(backup_dir: Path) -> dict:
+    """Check backup directory for pre-upgrade and regular backups."""
+    if not backup_dir.exists():
+        return {"label": "Backups", "status": "warn",
+                "detail": f"Verzeichnis nicht gefunden: {backup_dir}"}
+    files = list(backup_dir.iterdir())
+    db_files = [f for f in files if f.suffix == ".db"]
+    pre_upgrade = [f for f in db_files if f.name.startswith("pre_upgrade_")]
+    regular = [f for f in db_files
+               if f.name.startswith("wheel_storage_")]
+    return {"label": "Backups", "status": "ok",
+            "detail": f"{len(files)} Dateien gesamt, "
+                      f"{len(pre_upgrade)} Upgrade-Sicherungen, "
+                      f"{len(regular)} reguläre DB-Backups"}
+
+
+def _diag_port_listening(data_dir: Path) -> list[dict]:
+    """Check if the configured port is responding."""
+    results = []
+    # Try to determine port from NSSM or default
+    port = 5000
+    try:
+        r = run_cmd(["sc.exe", "qc", SERVICE_NAME], check=False)
+        import re as _re
+        m = _re.search(r"--port\s+(\d+)", r.stdout)
+        if m:
+            port = int(m.group(1))
+    except Exception:
+        pass
+
+    import socket as _sock
+    try:
+        s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        s.settimeout(3)
+        s.connect(("127.0.0.1", port))
+        s.close()
+        results.append({"label": f"Port {port}", "status": "ok",
+                        "detail": f"Port {port} antwortet (TCP-Verbindung OK)"})
+    except Exception:
+        results.append({"label": f"Port {port}", "status": "error",
+                        "detail": f"Port {port} antwortet nicht — "
+                                  f"Dienst läuft möglicherweise nicht"})
+    return results
+
+
+def _diag_scheduled_task() -> dict:
+    """Check if the daily restart task exists."""
+    try:
+        r = run_cmd(
+            ["schtasks", "/Query", "/TN",
+             f"{APP_NAME}_DailyUpdate", "/FO", "LIST"],
+            check=False)
+        if r.returncode == 0:
+            return {"label": "Geplante Aufgabe", "status": "ok",
+                    "detail": f"{APP_NAME}_DailyUpdate vorhanden"}
+        return {"label": "Geplante Aufgabe", "status": "warn",
+                "detail": "Aufgabe nicht gefunden"}
+    except Exception as e:
+        return {"label": "Geplante Aufgabe", "status": "error",
+                "detail": str(e)}

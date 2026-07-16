@@ -193,8 +193,12 @@ class InstallerApp(tk.Tk):
         self.app_exe: Path | None = None
         self._update_info: dict | None = None
 
+        # Hidden diagnostic key sequence: '###' (three '#' in a row)
+        self._diag_keys: list[str] = []
+
         self._build_ui()
         self._start_update_check()
+        self._bind_diag_keys()
 
     # --------------------------------------------------------
     # Registry persistence
@@ -470,6 +474,31 @@ class InstallerApp(tk.Tk):
     def _on_help(self):
         """Open the verbose help dialog (language-selectable)."""
         HelpWindow(self)
+
+    # --------------------------------------------------------
+    # Hidden diagnostic panel (### key sequence)
+    # --------------------------------------------------------
+    def _bind_diag_keys(self) -> None:
+        """Listen for the '###' key sequence to open the diagnostic panel."""
+        self.bind("<Key>", self._on_diag_key)
+
+    def _on_diag_key(self, event) -> None:
+        """Track '#' key presses; open diag panel after three consecutive."""
+        if event.char == "#":
+            self._diag_keys.append("#")
+            if len(self._diag_keys) >= 3:
+                self._diag_keys.clear()
+                self._open_diagnostics()
+        else:
+            self._diag_keys.clear()
+
+    def _open_diagnostics(self) -> None:
+        """Open the diagnostic window."""
+        DiagnosticWindow(
+            self,
+            install_dir=Path(self.var_install.get()),
+            data_dir=Path(self.var_data.get()),
+        )
 
     # --------------------------------------------------------
     # Async update check
@@ -1831,6 +1860,136 @@ def _run_headless(args: argparse.Namespace) -> int:
 
     print(f"Unknown action: {args.action}", flush=True)
     return 1
+
+
+# ========================================================
+# DIAGNOSTIC WINDOW (hidden — triggered by '###')
+# ========================================================
+class DiagnosticWindow(tk.Toplevel):
+    """Hidden diagnostic panel showing installation health checks.
+
+    Opened by pressing '###' while the installer is in admin mode.
+    All checks are read-only — nothing is modified.
+    """
+
+    _STATUS_ICONS = {"ok": "✅", "warn": "⚠️", "error": "❌"}
+    _STATUS_COLORS = {"ok": SUCCESS, "warn": "#eab308", "error": ERROR_CLR}
+
+    def __init__(self, parent: InstallerApp, install_dir: Path,
+                 data_dir: Path):
+        super().__init__(parent)
+        self.title("🔧 Diagnose-Tool")
+        self.geometry("780x620")
+        self.configure(bg=BG_DARK)
+        self.transient(parent)
+        self.grab_set()
+
+        # Header
+        hdr = tk.Frame(self, bg="#7c3aed", height=44)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Label(
+            hdr, text="  🔧 Diagnose-Tool  –  Installationsprüfung",
+            bg="#7c3aed", fg="white",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left", padx=8, pady=8)
+
+        # Info bar
+        info = tk.Frame(self, bg=BG_CARD)
+        info.pack(fill="x", padx=12, pady=(8, 0))
+        tk.Label(
+            info,
+            text=f"Install: {install_dir}\nDaten: {data_dir}",
+            bg=BG_CARD, fg="#94a3b8",
+            font=("Consolas", 9), justify="left",
+        ).pack(anchor="w", padx=8, pady=4)
+
+        # Scrollable results area
+        container = tk.Frame(self, bg=BG_DARK)
+        container.pack(fill="both", expand=True, padx=12, pady=8)
+
+        canvas = tk.Canvas(container, bg=BG_DARK, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical",
+                                  command=canvas.yview)
+        self._results_frame = tk.Frame(canvas, bg=BG_DARK)
+        self._results_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self._results_frame,
+                             anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Buttons
+        btn_bar = tk.Frame(self, bg=BG_DARK)
+        btn_bar.pack(fill="x", padx=12, pady=(0, 12))
+
+        tk.Button(
+            btn_bar, text="  🔄 Erneut prüfen  ",
+            font=("Segoe UI", 10), bg=ACCENT, fg="white",
+            relief="flat",
+            command=lambda: self._run_checks(install_dir, data_dir),
+        ).pack(side="left")
+
+        tk.Button(
+            btn_bar, text="  📋 In Zwischenablage  ",
+            font=("Segoe UI", 10), bg="#475569", fg="white",
+            relief="flat",
+            command=self._copy_to_clipboard,
+        ).pack(side="left", padx=(8, 0))
+
+        tk.Button(
+            btn_bar, text="  Schließen  ",
+            font=("Segoe UI", 10), bg="#64748b", fg="white",
+            relief="flat",
+            command=self.destroy,
+        ).pack(side="right")
+
+        self._checks: list[dict] = []
+        self._run_checks(install_dir, data_dir)
+
+    def _run_checks(self, install_dir: Path, data_dir: Path) -> None:
+        """Run all diagnostic checks and display results."""
+        # Clear previous results
+        for w in self._results_frame.winfo_children():
+            w.destroy()
+
+        self._checks = logic.diagnose(install_dir, data_dir)
+
+        for check in self._checks:
+            status = check.get("status", "error")
+            icon = self._STATUS_ICONS.get(status, "?")
+            color = self._STATUS_COLORS.get(status, FG_TEXT)
+
+            row = tk.Frame(self._results_frame, bg=BG_CARD)
+            row.pack(fill="x", pady=2)
+
+            tk.Label(
+                row, text=f" {icon}  {check['label']}",
+                bg=BG_CARD, fg=color,
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+            ).pack(fill="x", padx=8, pady=(4, 0))
+
+            tk.Label(
+                row, text=check.get("detail", ""),
+                bg=BG_CARD, fg="#cbd5e1",
+                font=("Consolas", 9),
+                anchor="w", justify="left",
+                wraplength=720,
+            ).pack(fill="x", padx=(28, 8), pady=(0, 4))
+
+    def _copy_to_clipboard(self) -> None:
+        """Copy all diagnostic results to the clipboard as plain text."""
+        lines = ["=== TSM Diagnose-Bericht ===\n"]
+        for check in self._checks:
+            icon = self._STATUS_ICONS.get(check.get("status", ""), "?")
+            lines.append(f"{icon} {check['label']}")
+            lines.append(f"   {check.get('detail', '')}\n")
+        text = "\n".join(lines)
+        self.clipboard_clear()
+        self.clipboard_append(text)
 
 
 def main():
