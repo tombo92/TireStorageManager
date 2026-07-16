@@ -47,8 +47,8 @@
             </select>
         </div>
 
-        {# Filter: season (only shown when tire details enabled) #}
-        {% if settings.enable_tire_details %}
+        {# Filter: season (shown when the season field is visible) #}
+        {% if settings.is_field_visible('season') %}
         <div class="col-6 col-md-2">
             <select class="form-select" name="filter_season" onchange="this.form.submit()">
                 <option value="" {{ 'selected' if not filter_season }}>{{ _("wl_filter_all_season") }}</option>
@@ -59,13 +59,21 @@
         </div>
         {% endif %}
 
+        {# Filter: tire renewal #}
+        <div class="col-6 col-md-2">
+            <select class="form-select" name="filter_renewal" onchange="this.form.submit()">
+                <option value="" {{ 'selected' if not filter_renewal }}>—</option>
+                <option value="1" {{ 'selected' if filter_renewal == '1' }}>{{ _("wl_filter_renewal") }}</option>
+            </select>
+        </div>
+
         {# Search button #}
         <div class="col-6 col-md-1 d-grid">
             <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
         </div>
 
         {# Reset — only shown when any filter/sort is active #}
-        {% if request.args.get('q') or filter_pos or filter_season or sort != 'updated_desc' %}
+        {% if request.args.get('q') or filter_pos or filter_season or filter_renewal or sort != 'updated_desc' %}
         <div class="col-12">
             <a href="{{ url_for('list_wheelsets') }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-x-circle me-1"></i>{{ _("wl_reset_filter") }}
@@ -109,8 +117,14 @@
                     <span class="badge pos-badge {{ cls }}">{{ w.storage_position }}</span>
                 </td>
                 <td>
+                    {# Tire renewal badge #}
+                    {% if w.tires_need_renewal %}
+                    <span class="badge renewal-badge me-1" title="{{ _('wl_renewal_badge') }}">
+                        <i class="bi bi-exclamation-diamond-fill"></i> {{ _("wl_renewal_badge") }}
+                    </span>
+                    {% endif %}
                     {# Season badge with icon #}
-                    {% if settings.enable_tire_details and w.season %}
+                    {% if settings.is_field_visible('season') and w.season %}
                     <span class="badge season-badge season-{{ w.season }}
                                  {{ 'season-overdue' if is_overdue else '' }}"
                           {% if w.exchange_note %}title="{{ w.exchange_note }}"{% endif %}>
@@ -125,7 +139,7 @@
                     </span>
                     {% endif %}
                     {# Rim badge #}
-                    {% if settings.enable_tire_details and w.rim_type %}
+                    {% if settings.is_field_visible('rim_type') and w.rim_type %}
                     <span class="badge text-bg-light border ms-1">{{ _("wf_rim_" + w.rim_type) }}</span>
                     {% endif %}
                     {# Plain note — shown after badges, truncated #}
