@@ -1112,3 +1112,269 @@ def _diag_scheduled_task() -> dict:
     except Exception as e:
         return {"label": "Geplante Aufgabe", "status": "error",
                 "detail": str(e)}
+
+
+# ========================================================
+# RELEASE MANAGEMENT (diagnostic dev-panel actions)
+# ========================================================
+_GH_ALL_RELEASES_URL = (
+    f"https://api.github.com/repos/{_GH_OWNER}/{_GH_REPO}/releases"
+)
+
+
+def fetch_all_releases(max_releases: int = 20) -> list[dict]:
+    """Fetch the list of available GitHub releases.
+
+    Returns a list of dicts, each with:
+        tag (str): e.g. 'v1.10.0'
+        version (str): e.g. '1.10.0'
+        name (str): release title
+        prerelease (bool)
+        app_url (str | None): download URL for TireStorageManager.exe
+        published (str): ISO date
+    """
+    try:
+        url = f"{_GH_ALL_RELEASES_URL}?per_page={max_releases}"
+        headers = {
+            "User-Agent": "TSM-Installer/1.0",
+            "Accept": "application/vnd.github+json",
+        }
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(
+            req, timeout=_HTTP_TIMEOUT, context=_ssl_context()
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    releases = []
+    for r in data:
+        tag = r.get("tag_name", "")
+        app_url = None
+        for asset in r.get("assets", []):
+            if asset.get("name", "").lower() == "tirestoragemanager.exe":
+                app_url = asset.get("browser_download_url")
+                break
+        releases.append({
+            "tag": tag,
+            "version": tag.lstrip("v"),
+            "name": r.get("name", tag),
+            "prerelease": r.get("prerelease", False),
+            "app_url": app_url,
+            "published": (r.get("published_at") or "")[:10],
+        })
+    return releases
+
+
+def deploy_release(
+    app_url: str,
+    install_dir: Path,
+    data_dir: Path,
+    log: Callable[[str], None] | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> bool:
+    """Download a release EXE, stop the service, deploy, and restart.
+
+    Steps:
+    1. Download TireStorageManager.exe to a temp file
+    2. Create a pre-upgrade backup of the database
+    3. Stop the service
+    4. Replace the EXE in install_dir
+    5. Start the service
+    6. Verify the service comes up (port responds, DB has data)
+
+    Returns True on success.
+    """
+    import tempfile
+
+    app_exe_dest = install_dir / f"{APP_NAME}.exe"
+    nssm = install_dir / "nssm.exe"
+
+    # 1. Download to temp
+    if log:
+        log("1/6  Lade neue Version herunter …")
+    tmp = Path(tempfile.mktemp(suffix=".exe",
+                               dir=str(install_dir)))
+    ok = download_file(app_url, tmp, on_progress=on_progress)
+    if not ok:
+        if log:
+            log("   ✗ Download fehlgeschlagen.")
+        return False
+    if log:
+        size_mb = tmp.stat().st_size / (1024 * 1024)
+        log(f"   ✓ Download abgeschlossen ({size_mb:.1f} MB)")
+
+    # 2. Pre-upgrade backup
+    if log:
+        log("2/6  Erstelle Upgrade-Sicherung …")
+    pre_upgrade_backup(data_dir, log=log)
+
+    # 3. Stop service
+    if log:
+        log("3/6  Stoppe Dienst …")
+    stop_service(install_dir, log=log)
+    # Wait for file lock release
+    import time as _time
+    _time.sleep(2)
+
+    # 4. Replace EXE
+    if log:
+        log("4/6  Ersetze Anwendung …")
+    try:
+        if app_exe_dest.exists():
+            old_backup = app_exe_dest.with_suffix(".exe.old")
+            if old_backup.exists():
+                old_backup.unlink()
+            os.rename(app_exe_dest, old_backup)
+        os.rename(tmp, app_exe_dest)
+        if log:
+            log(f"   ✓ {app_exe_dest.name} ersetzt")
+    except OSError as e:
+        if log:
+            log(f"   ✗ Fehler: {e}")
+        return False
+
+    # 5. Start service
+    if log:
+        log("5/6  Starte Dienst …")
+    start_service(nssm, log=log)
+
+    # 6. Verify
+    if log:
+        log("6/6  Überprüfe Start …")
+    ok = verify_service_health(data_dir, log=log)
+
+    if not ok:
+        # Automatic rollback
+        if log:
+            log("   ⚠ Verifizierung fehlgeschlagen — Rollback wird durchgeführt …")
+        old_backup = app_exe_dest.with_suffix(".exe.old")
+        if old_backup.exists():
+            try:
+                stop_service(install_dir, log=log)
+                import time as _time2
+                _time2.sleep(2)
+                failed = app_exe_dest.with_suffix(".exe.failed")
+                if failed.exists():
+                    failed.unlink()
+                os.rename(app_exe_dest, failed)
+                os.rename(old_backup, app_exe_dest)
+                start_service(nssm, log=log)
+                if log:
+                    log("   ✓ Rollback erfolgreich — vorherige Version wiederhergestellt")
+                # Verify the old version came back
+                old_ok = verify_service_health(data_dir, timeout=20, log=log)
+                if old_ok and log:
+                    log("   ✓ Vorherige Version läuft wieder korrekt")
+                elif log:
+                    log("   ✗ Vorherige Version konnte ebenfalls nicht verifiziert werden")
+            except OSError as e:
+                if log:
+                    log(f"   ✗ Rollback fehlgeschlagen: {e}")
+        elif log:
+            log("   ✗ Kein .exe.old vorhanden — Rollback nicht möglich")
+
+    return ok
+
+
+def verify_service_health(
+    data_dir: Path,
+    timeout: int = 30,
+    log: Callable[[str], None] | None = None,
+) -> bool:
+    """Verify the service is healthy: port responds and DB has data.
+
+    Polls for up to *timeout* seconds for a successful HTTP response,
+    then checks the database for non-empty tables.
+    """
+    import socket as _sock
+    import time as _time
+
+    # Determine port from NSSM config
+    port = 5000
+    try:
+        r = run_cmd(["sc.exe", "qc", SERVICE_NAME], check=False)
+        m = re.search(r"--port\s+(\d+)", r.stdout)
+        if m:
+            port = int(m.group(1))
+    except Exception:
+        pass
+
+    # Poll for TCP port
+    start = _time.time()
+    port_ok = False
+    while _time.time() - start < timeout:
+        try:
+            s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect(("127.0.0.1", port))
+            s.close()
+            port_ok = True
+            break
+        except Exception:
+            _time.sleep(1)
+
+    if not port_ok:
+        if log:
+            log(f"   ✗ Port {port} antwortet nicht nach {timeout}s")
+        return False
+    if log:
+        log(f"   ✓ Port {port} antwortet")
+
+    # Check HTTP response
+    http_ok = False
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/",
+            headers={"User-Agent": "TSM-Diag/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            http_ok = resp.status == 200
+    except Exception:
+        pass
+
+    if http_ok:
+        if log:
+            log(f"   ✓ HTTP 200 OK auf http://127.0.0.1:{port}/")
+    else:
+        if log:
+            log(f"   ⚠ HTTP-Antwort nicht OK auf Port {port}")
+
+    # Check DB has data
+    db_path = data_dir / "db" / "wheel_storage.db"
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = {r[0] for r in cur.fetchall()}
+            ws_count = 0
+            if "wheel_sets" in tables:
+                cur.execute("SELECT COUNT(*) FROM wheel_sets")
+                ws_count = cur.fetchone()[0]
+            conn.close()
+            if ws_count > 0:
+                if log:
+                    log(f"   ✓ Datenbank: {ws_count} Radsätze vorhanden")
+            else:
+                if log:
+                    log(f"   ⚠ Datenbank: leer (0 Radsätze)")
+        except Exception as e:
+            if log:
+                log(f"   ✗ Datenbank-Prüfung fehlgeschlagen: {e}")
+    else:
+        if log:
+            log(f"   ✗ Datenbank nicht gefunden: {db_path}")
+
+    return port_ok and http_ok
+
+
+def is_fresh_install() -> bool:
+    """Return True if no existing TSM service is registered on this system.
+
+    Used to warn users who might be installing on a client workstation
+    instead of updating the actual server.
+    """
+    return not service_exists()

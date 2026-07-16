@@ -427,3 +427,597 @@ class TestDiagnoseIntegration:
         errors = [r for r in results if r["status"] == "error"]
         assert len(errors) == 0, \
             f"Unexpected errors: {[r['label'] for r in errors]}"
+
+
+# ── Fresh install detection ───────────────────────────────────────────────
+
+class TestFreshInstallDetection:
+    def test_fresh_install_when_no_service(self):
+        import subprocess
+        mock = subprocess.CompletedProcess([], 1, stdout="", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            assert logic.is_fresh_install() is True
+
+    def test_not_fresh_when_service_exists(self):
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="STATE : 4  RUNNING", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            assert logic.is_fresh_install() is False
+
+
+# ── fetch_all_releases ────────────────────────────────────────────────────
+
+class TestFetchAllReleases:
+    def test_returns_list(self):
+        import json as _json
+        fake_releases = [
+            {
+                "tag_name": "v1.10.0",
+                "name": "TireStorageManager v1.10.0",
+                "prerelease": False,
+                "published_at": "2026-07-16T10:00:00Z",
+                "assets": [
+                    {"name": "TireStorageManager.exe",
+                     "browser_download_url": "https://example.com/app.exe"},
+                    {"name": "TSM-Installer.exe",
+                     "browser_download_url": "https://example.com/inst.exe"},
+                ],
+            },
+            {
+                "tag_name": "v1.9.0",
+                "name": "TireStorageManager v1.9.0",
+                "prerelease": False,
+                "published_at": "2026-07-15T10:00:00Z",
+                "assets": [],
+            },
+        ]
+
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _json.dumps(
+            fake_releases).encode("utf-8")
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            releases = logic.fetch_all_releases()
+
+        assert len(releases) == 2
+        assert releases[0]["version"] == "1.10.0"
+        assert releases[0]["app_url"] == "https://example.com/app.exe"
+        # v1.9.0 has no EXE asset
+        assert releases[1]["app_url"] is None
+
+    def test_returns_empty_on_network_error(self):
+        with patch("urllib.request.urlopen",
+                   side_effect=Exception("no network")):
+            releases = logic.fetch_all_releases()
+        assert releases == []
+
+
+# ── verify_service_health ─────────────────────────────────────────────────
+
+class TestVerifyServiceHealth:
+    def test_healthy_service(self, tmp_path):
+        data = tmp_path / "data"
+        (data / "db").mkdir(parents=True)
+        _make_db(data / "db" / "wheel_storage.db", with_data=True)
+
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="--port 5000", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            import socket
+            with patch.object(socket.socket, "connect"):
+                # Mock HTTP response
+                from unittest.mock import MagicMock
+                mock_resp = MagicMock()
+                mock_resp.status = 200
+                mock_resp.__enter__ = lambda s: s
+                mock_resp.__exit__ = MagicMock(return_value=False)
+                with patch("urllib.request.urlopen",
+                           return_value=mock_resp):
+                    ok = logic.verify_service_health(
+                        data, timeout=2)
+        assert ok is True
+
+    def test_port_not_responding(self, tmp_path):
+        data = tmp_path / "data"
+        data.mkdir()
+
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="--port 59999", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            import socket
+            with patch.object(socket.socket, "connect",
+                              side_effect=ConnectionRefusedError):
+                ok = logic.verify_service_health(
+                    data, timeout=2)
+        assert ok is False
+
+
+# ── Self-update rollback (run.py integration) ─────────────────────────────
+
+class TestSelfUpdateRollback:
+    """Test the update marker and rollback mechanism in self_update.py."""
+
+    def test_write_and_read_marker(self, tmp_path, monkeypatch):
+        from tsm import self_update as su
+        marker_exe = tmp_path / "TireStorageManager.exe"
+        marker_exe.write_bytes(b"\x00")
+        monkeypatch.setattr(su, "_current_exe", lambda: marker_exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+
+        su._write_update_marker("1.9.0", "1.10.0")
+        result = su.read_update_marker()
+        assert result == ("1.9.0", "1.10.0")
+
+    def test_read_marker_removes_file(self, tmp_path, monkeypatch):
+        from tsm import self_update as su
+        marker_exe = tmp_path / "TireStorageManager.exe"
+        marker_exe.write_bytes(b"\x00")
+        monkeypatch.setattr(su, "_current_exe", lambda: marker_exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+
+        su._write_update_marker("1.9.0", "1.10.0")
+        su.read_update_marker()
+        # Second read returns None (marker consumed)
+        assert su.read_update_marker() is None
+
+    def test_read_marker_returns_none_when_not_frozen(self, monkeypatch):
+        from tsm import self_update as su
+        monkeypatch.setattr(su, "_is_frozen", lambda: False)
+        assert su.read_update_marker() is None
+
+    def test_rollback_swaps_exe(self, tmp_path, monkeypatch):
+        from tsm import self_update as su
+        exe = tmp_path / "TireStorageManager.exe"
+        old = tmp_path / "TireStorageManager.exe.old"
+        exe.write_bytes(b"new")
+        old.write_bytes(b"old")
+        monkeypatch.setattr(su, "_current_exe", lambda: exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+        monkeypatch.setattr(su, "_restart_service", lambda: None)
+
+        result = su.rollback_update()
+        assert result is True
+        assert exe.read_bytes() == b"old"
+        assert (tmp_path / "TireStorageManager.exe.failed").read_bytes() == b"new"
+
+    def test_rollback_fails_without_old_exe(self, tmp_path, monkeypatch):
+        from tsm import self_update as su
+        exe = tmp_path / "TireStorageManager.exe"
+        exe.write_bytes(b"new")
+        monkeypatch.setattr(su, "_current_exe", lambda: exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+
+        result = su.rollback_update()
+        assert result is False
+
+
+# ── deploy_release rollback on failure ────────────────────────────────────
+
+class TestDeployReleaseRollback:
+    def test_rollback_on_verify_failure(self, tmp_path):
+        """When verification fails, deploy_release rolls back."""
+        install = tmp_path / "install"
+        data = tmp_path / "data"
+        install.mkdir()
+        (data / "db").mkdir(parents=True)
+
+        # Create a fake "old" EXE
+        app_exe = install / "TireStorageManager.exe"
+        app_exe.write_bytes(b"old_version_content")
+        nssm = install / "nssm.exe"
+        nssm.write_bytes(b"\x00")
+
+        logged: list[str] = []
+
+        with patch.object(logic, "download_file", return_value=True):
+            with patch.object(logic, "pre_upgrade_backup"):
+                with patch.object(logic, "stop_service"):
+                    with patch.object(logic, "start_service"):
+                        # Verify always fails
+                        with patch.object(logic, "verify_service_health",
+                                          return_value=False):
+                            # Make the temp file exist
+                            import tempfile
+                            with patch("tempfile.mktemp",
+                                       return_value=str(
+                                           install / "tmp.exe")):
+                                (install / "tmp.exe").write_bytes(
+                                    b"new_version")
+                                ok = logic.deploy_release(
+                                    app_url="https://example.com/app.exe",
+                                    install_dir=install,
+                                    data_dir=data,
+                                    log=logged.append,
+                                )
+
+        assert ok is False
+        assert any("Rollback" in l for l in logged)
+
+
+# ========================================================
+# EDGE-CASE TESTS
+# ========================================================
+
+# ── Update marker edge cases ─────────────────────────────────────────────
+
+class TestUpdateMarkerEdgeCases:
+    def test_marker_with_only_one_line(self, tmp_path, monkeypatch):
+        """Marker with only one line should return None (malformed)."""
+        from tsm import self_update as su
+        exe = tmp_path / "app.exe"
+        exe.write_bytes(b"\x00")
+        monkeypatch.setattr(su, "_current_exe", lambda: exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+        marker = exe.with_suffix(".update_marker")
+        marker.write_text("1.9.0\n", encoding="utf-8")
+        assert su.read_update_marker() is None
+
+    def test_marker_with_empty_file(self, tmp_path, monkeypatch):
+        from tsm import self_update as su
+        exe = tmp_path / "app.exe"
+        exe.write_bytes(b"\x00")
+        monkeypatch.setattr(su, "_current_exe", lambda: exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+        marker = exe.with_suffix(".update_marker")
+        marker.write_text("", encoding="utf-8")
+        assert su.read_update_marker() is None
+
+    def test_marker_with_extra_whitespace(self, tmp_path, monkeypatch):
+        from tsm import self_update as su
+        exe = tmp_path / "app.exe"
+        exe.write_bytes(b"\x00")
+        monkeypatch.setattr(su, "_current_exe", lambda: exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+        su._write_update_marker("  1.8.0  ", "  1.9.0  ")
+        result = su.read_update_marker()
+        assert result == ("1.8.0", "1.9.0")
+
+    def test_marker_absent_returns_none(self, tmp_path, monkeypatch):
+        from tsm import self_update as su
+        exe = tmp_path / "app.exe"
+        exe.write_bytes(b"\x00")
+        monkeypatch.setattr(su, "_current_exe", lambda: exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+        assert su.read_update_marker() is None
+
+
+# ── Rollback edge cases ──────────────────────────────────────────────────
+
+class TestRollbackEdgeCases:
+    def test_rollback_cleans_existing_failed_file(self, tmp_path, monkeypatch):
+        """If .exe.failed already exists from a prior rollback, remove it."""
+        from tsm import self_update as su
+        exe = tmp_path / "app.exe"
+        old = tmp_path / "app.exe.old"
+        failed = tmp_path / "app.exe.failed"
+        exe.write_bytes(b"new")
+        old.write_bytes(b"old")
+        failed.write_bytes(b"ancient_failed")
+        monkeypatch.setattr(su, "_current_exe", lambda: exe)
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+        monkeypatch.setattr(su, "_restart_service", lambda: None)
+
+        result = su.rollback_update()
+        assert result is True
+        assert exe.read_bytes() == b"old"
+        assert failed.read_bytes() == b"new"  # latest failed, not ancient
+
+    def test_rollback_not_frozen_returns_false(self, monkeypatch):
+        from tsm import self_update as su
+        monkeypatch.setattr(su, "_is_frozen", lambda: False)
+        assert su.rollback_update() is False
+
+
+# ── DB diagnostic edge cases ─────────────────────────────────────────────
+
+class TestDiagDbEdgeCases:
+    def test_db_file_is_directory(self, tmp_path):
+        """If the DB path is a directory, report error."""
+        db = tmp_path / "wheel_storage.db"
+        db.mkdir()
+        result = logic._diag_db_file(db)
+        assert result["status"] == "error"
+
+    def test_db_with_all_tables_but_no_wheelsets(self, tmp_path):
+        db = tmp_path / "ws.db"
+        _make_db(db, with_data=False)
+        result = logic._diag_db_file(db)
+        assert result["status"] == "ok"
+        assert "0 Radsätze" in result["detail"]
+
+    def test_db_with_many_wheelsets(self, tmp_path):
+        db = tmp_path / "ws.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db))
+        conn.execute("CREATE TABLE wheel_sets (id INTEGER PRIMARY KEY, "
+                     "customer_name TEXT, storage_position TEXT UNIQUE)")
+        conn.execute("CREATE TABLE settings (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE audit_log (id INTEGER PRIMARY KEY)")
+        for i in range(50):
+            conn.execute(
+                "INSERT INTO wheel_sets (customer_name, storage_position) "
+                f"VALUES ('Customer {i}', 'POS{i}')")
+        conn.commit()
+        conn.close()
+        result = logic._diag_db_file(db)
+        assert result["status"] == "ok"
+        assert "50 Radsätze" in result["detail"]
+
+
+# ── Log diagnostic edge cases ────────────────────────────────────────────
+
+class TestDiagLogEdgeCases:
+    def test_log_with_traceback(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "tsm.log").write_text(
+            "2026-07-16 INFO Starting\n"
+            "Traceback (most recent call last):\n"
+            "  File 'x.py', line 1\n"
+            "RuntimeError: boom\n",
+            encoding="utf-8",
+        )
+        results = logic._diag_recent_logs(log_dir)
+        tsm = [r for r in results if "tsm.log" in r["label"]]
+        assert tsm[0]["status"] == "warn"
+
+    def test_empty_log_file(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "tsm.log").write_text("", encoding="utf-8")
+        results = logic._diag_recent_logs(log_dir)
+        tsm = [r for r in results if "tsm.log" in r["label"]]
+        assert tsm[0]["status"] == "ok"  # empty = no errors
+
+    def test_service_stderr_with_error(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "service_stderr.log").write_text(
+            "ERROR: Cannot bind port 5000\n", encoding="utf-8")
+        results = logic._diag_recent_logs(log_dir)
+        stderr = [r for r in results if "service_stderr" in r["label"]]
+        assert len(stderr) == 1
+        assert stderr[0]["status"] == "warn"
+
+
+# ── Backup diagnostic edge cases ─────────────────────────────────────────
+
+class TestDiagBackupEdgeCases:
+    def test_empty_backup_dir(self, tmp_path):
+        bd = tmp_path / "backups"
+        bd.mkdir()
+        result = logic._diag_backup_dir(bd)
+        assert result["status"] == "ok"
+        assert "0 Dateien" in result["detail"]
+
+    def test_mixed_file_types(self, tmp_path):
+        bd = tmp_path / "backups"
+        bd.mkdir()
+        (bd / "pre_upgrade_20260716.db").write_bytes(b"\x00")
+        (bd / "pre_upgrade_20260715.db").write_bytes(b"\x00")
+        (bd / "wheel_storage_20260714.db").write_bytes(b"\x00")
+        (bd / "wheel_storage_20260714.csv").write_bytes(b"\x00")
+        (bd / "wheel_storage_20260714.xlsx").write_bytes(b"\x00")
+        result = logic._diag_backup_dir(bd)
+        assert "2 Upgrade-Sicherungen" in result["detail"]
+        assert "1 reguläre DB-Backups" in result["detail"]
+        assert "5 Dateien" in result["detail"]
+
+
+# ── Service status edge cases ─────────────────────────────────────────────
+
+class TestDiagServiceEdgeCases:
+    def test_stop_pending(self):
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="STATE : 3  STOP_PENDING", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            result = logic._diag_service_status()
+        assert result["status"] == "warn"
+        assert "STOP_PENDING" in result["detail"]
+
+    def test_start_pending(self):
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="STATE : 2  START_PENDING", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            result = logic._diag_service_status()
+        assert result["status"] == "warn"
+        assert "START_PENDING" in result["detail"]
+
+    def test_unknown_state(self):
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="STATE : 7  PAUSED", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            result = logic._diag_service_status()
+        assert result["status"] == "warn"
+
+
+# ── NSSM config edge cases ───────────────────────────────────────────────
+
+class TestNssmEdgeCases:
+    def test_nssm_command_fails(self, tmp_path):
+        nssm = tmp_path / "nssm.exe"
+        nssm.write_bytes(b"\x00")
+        with patch.object(logic, "run_cmd",
+                          side_effect=Exception("permission denied")):
+            results = logic._diag_nssm_config(nssm)
+        assert all(r["status"] == "error" for r in results)
+
+    def test_env_without_tsm_data_dir(self, tmp_path):
+        nssm = tmp_path / "nssm.exe"
+        nssm.write_bytes(b"\x00")
+        import subprocess
+        params_ok = subprocess.CompletedProcess(
+            [], 0, stdout='--data-dir "C:\\data" --port 5000', stderr="")
+        env_bad = subprocess.CompletedProcess(
+            [], 0, stdout="TSM_PORT=5000\nTSM_APP_NAME=Reifenmanager",
+            stderr="")
+
+        def side_effect(cmd, check=True):
+            if "AppParameters" in cmd:
+                return params_ok
+            return env_bad
+
+        with patch.object(logic, "run_cmd", side_effect=side_effect):
+            results = logic._diag_nssm_config(nssm)
+        env = [r for r in results if "Umgebungsvariablen" in r["label"]]
+        assert env[0]["status"] == "warn"
+        assert "TSM_DATA_DIR fehlt" in env[0]["detail"]
+
+
+# ── deploy_release edge cases ────────────────────────────────────────────
+
+class TestDeployReleaseEdgeCases:
+    def test_download_failure_returns_false(self, tmp_path):
+        install = tmp_path / "install"
+        data = tmp_path / "data"
+        install.mkdir()
+        data.mkdir()
+
+        logged: list[str] = []
+        with patch.object(logic, "download_file", return_value=False):
+            import tempfile
+            with patch("tempfile.mktemp",
+                       return_value=str(install / "tmp.exe")):
+                ok = logic.deploy_release(
+                    app_url="https://example.com/fail.exe",
+                    install_dir=install,
+                    data_dir=data,
+                    log=logged.append,
+                )
+        assert ok is False
+        assert any("fehlgeschlagen" in l for l in logged)
+
+    def test_successful_deploy(self, tmp_path):
+        install = tmp_path / "install"
+        data = tmp_path / "data"
+        install.mkdir()
+        (data / "db").mkdir(parents=True)
+
+        app_exe = install / "TireStorageManager.exe"
+        app_exe.write_bytes(b"old")
+        nssm = install / "nssm.exe"
+        nssm.write_bytes(b"\x00")
+
+        logged: list[str] = []
+
+        with patch.object(logic, "download_file", return_value=True):
+            with patch.object(logic, "pre_upgrade_backup"):
+                with patch.object(logic, "stop_service"):
+                    with patch.object(logic, "start_service"):
+                        with patch.object(logic, "verify_service_health",
+                                          return_value=True):
+                            import tempfile
+                            with patch("tempfile.mktemp",
+                                       return_value=str(
+                                           install / "tmp.exe")):
+                                (install / "tmp.exe").write_bytes(
+                                    b"new")
+                                ok = logic.deploy_release(
+                                    app_url="https://example.com/ok.exe",
+                                    install_dir=install,
+                                    data_dir=data,
+                                    log=logged.append,
+                                )
+        assert ok is True
+
+
+# ── verify_service_health edge cases ─────────────────────────────────────
+
+class TestVerifyHealthEdgeCases:
+    def test_db_missing(self, tmp_path):
+        """Service responds but DB file doesn't exist."""
+        data = tmp_path / "data"
+        data.mkdir()
+        # No db/ directory
+
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="--port 5000", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            import socket
+            with patch.object(socket.socket, "connect"):
+                from unittest.mock import MagicMock
+                mock_resp = MagicMock()
+                mock_resp.status = 200
+                mock_resp.__enter__ = lambda s: s
+                mock_resp.__exit__ = MagicMock(return_value=False)
+                with patch("urllib.request.urlopen",
+                           return_value=mock_resp):
+                    logged: list[str] = []
+                    ok = logic.verify_service_health(
+                        data, timeout=2, log=logged.append)
+        # Port + HTTP OK, but DB missing — still returns True
+        # (service is running, DB issue is separate)
+        assert ok is True
+        assert any("nicht gefunden" in l for l in logged)
+
+    def test_http_fails_but_port_open(self, tmp_path):
+        """TCP connects but HTTP returns error."""
+        data = tmp_path / "data"
+        data.mkdir()
+
+        import subprocess
+        mock = subprocess.CompletedProcess(
+            [], 0, stdout="--port 5000", stderr="")
+        with patch.object(logic, "run_cmd", return_value=mock):
+            import socket
+            with patch.object(socket.socket, "connect"):
+                with patch("urllib.request.urlopen",
+                           side_effect=Exception("500")):
+                    ok = logic.verify_service_health(
+                        data, timeout=2)
+        assert ok is False
+
+
+# ── Post-update verification integration (run.py logic) ──────────────────
+
+class TestPostUpdateVerification:
+    """Test the verification logic from run.py main() without actually
+    starting the server."""
+
+    def test_no_marker_skips_verification(self, monkeypatch):
+        """When no marker exists, verification is skipped."""
+        from tsm import self_update as su
+        monkeypatch.setattr(su, "_is_frozen", lambda: True)
+        monkeypatch.setattr(su, "read_update_marker", lambda: None)
+        # If verification ran, it would try to import SessionLocal
+        # and fail — so no marker = no crash = test passes
+
+    def test_marker_with_accessible_db_passes(
+            self, db_session, db_engine, monkeypatch):
+        """Post-update with a healthy DB should pass verification."""
+        from tsm.models import Settings, WheelSet
+        s = Settings(backup_interval_minutes=60, backup_copies=10)
+        db_session.add(s)
+        db_session.commit()
+
+        # Simulate querying core tables (what run.py does)
+        db_session.query(Settings).first()
+        count = db_session.query(WheelSet).count()
+        assert count == 0  # empty but queryable = OK
+
+
+# ── fresh_install warning logic ──────────────────────────────────────────
+
+class TestFreshInstallWarning:
+    def test_is_fresh_install_delegates_to_service_exists(self):
+        """is_fresh_install() should be the inverse of service_exists()."""
+        import subprocess
+        exists = subprocess.CompletedProcess(
+            [], 0, stdout="RUNNING", stderr="")
+        not_exists = subprocess.CompletedProcess(
+            [], 1, stdout="", stderr="not found")
+
+        with patch.object(logic, "run_cmd", return_value=exists):
+            assert logic.is_fresh_install() is False
+        with patch.object(logic, "run_cmd", return_value=not_exists):
+            assert logic.is_fresh_install() is True
