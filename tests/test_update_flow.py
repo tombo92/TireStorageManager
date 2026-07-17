@@ -218,10 +218,53 @@ class TestCheckForUpdate:
         with patch("tsm.self_update._is_frozen", return_value=True), \
              patch("tsm.self_update._fetch_latest_release",
                    return_value=None), \
+             patch("tsm.self_update._fetch_all_releases",
+                   return_value=[]), \
              patch("tsm.self_update._fetch_remote_version_via_raw",
                    return_value=None), \
              patch("tsm.self_update._cleanup_old_exe"):
             assert check_for_update() is False
+
+    # ── /latest empty, but full releases list has a match ─────────────
+    def test_fallback_to_releases_list(self, tmp_path):
+        """Regression: /releases/latest can return nothing (e.g. the
+        newest release is marked pre-release) even though a usable
+        release exists — check_for_update must still find it via the
+        full releases list."""
+        fake_asset = {
+            "name": "TireStorageManager.exe",
+            "browser_download_url": "https://example.com/app.exe",
+            "size": 5_000_000,
+        }
+        fake_releases = [
+            {"tag_name": "v1.10.1", "draft": False, "assets": [fake_asset],
+             "body": None, "html_url": None},
+        ]
+        fake_exe = tmp_path / "TireStorageManager.exe"
+        _make_exe(fake_exe)
+
+        def fake_download(url, dest):
+            _make_exe(dest)
+            return True
+
+        with patch("tsm.self_update._is_frozen", return_value=True), \
+             patch("tsm.self_update._fetch_latest_release",
+                   return_value=None), \
+             patch("tsm.self_update._fetch_all_releases",
+                   return_value=fake_releases), \
+             patch("tsm.self_update._fetch_remote_version_via_raw",
+                   return_value=None), \
+             patch("tsm.self_update._cleanup_old_exe"), \
+             patch("tsm.self_update._current_exe",
+                   return_value=fake_exe), \
+             patch("tsm.self_update._download_asset",
+                   side_effect=fake_download), \
+             patch("tsm.self_update._verify_authenticode",
+                   return_value=(True, "")), \
+             patch("tsm.self_update._swap_exe", return_value=True), \
+             patch("tsm.self_update._restart_service"):
+            result = check_for_update()
+        assert result is True
 
     # ── Update available but no EXE asset ─────────────────────────────
     def test_update_available_no_asset_returns_false(self):
@@ -238,6 +281,130 @@ class TestCheckForUpdate:
                    return_value="99.0.0"), \
              patch("tsm.self_update._cleanup_old_exe"):
             assert check_for_update() is False
+
+    # ── Real customer regression: 1.9.0 -> 1.10.1 ─────────────────────
+    def test_regression_customer_1_9_0_to_1_10_1(self, tmp_path,
+                                                  monkeypatch):
+        """Reproduces the exact reported bug: local version 1.9.0,
+        remote release v1.10.1 available — must be detected and
+        applied, not silently skipped."""
+        monkeypatch.setattr("config.VERSION", "1.9.0", raising=False)
+        fake_asset = {
+            "name": "TireStorageManager.exe",
+            "browser_download_url": "https://example.com/app.exe",
+            "size": 5_000_000,
+        }
+        fake_release = {
+            "tag_name": "v1.10.1",
+            "assets": [fake_asset],
+            "body": None,
+            "html_url": None,
+        }
+        fake_exe = tmp_path / "TireStorageManager.exe"
+        _make_exe(fake_exe)
+
+        def fake_download(url, dest):
+            _make_exe(dest)
+            return True
+
+        with patch("config.VERSION", "1.9.0"), \
+             patch("tsm.self_update._is_frozen", return_value=True), \
+             patch("tsm.self_update._fetch_latest_release",
+                   return_value=fake_release), \
+             patch("tsm.self_update._fetch_remote_version_via_raw",
+                   return_value="1.10.1"), \
+             patch("tsm.self_update._cleanup_old_exe"), \
+             patch("tsm.self_update._current_exe",
+                   return_value=fake_exe), \
+             patch("tsm.self_update._download_asset",
+                   side_effect=fake_download), \
+             patch("tsm.self_update._verify_authenticode",
+                   return_value=(True, "")), \
+             patch("tsm.self_update._swap_exe", return_value=True), \
+             patch("tsm.self_update._restart_service"):
+            result = check_for_update()
+        assert result is True
+
+    # ── Case-insensitive asset match end-to-end ───────────────────────
+    def test_asset_name_case_insensitive(self, tmp_path):
+        fake_asset = {
+            "name": "TIRESTORAGEMANAGER.EXE",   # unusual casing
+            "browser_download_url": "https://example.com/app.exe",
+            "size": 5_000_000,
+        }
+        fake_release = {
+            "tag_name": "v99.0.0",
+            "assets": [fake_asset],
+            "body": None,
+            "html_url": None,
+        }
+        fake_exe = tmp_path / "TireStorageManager.exe"
+        _make_exe(fake_exe)
+
+        def fake_download(url, dest):
+            _make_exe(dest)
+            return True
+
+        with patch("tsm.self_update._is_frozen", return_value=True), \
+             patch("tsm.self_update._fetch_latest_release",
+                   return_value=fake_release), \
+             patch("tsm.self_update._fetch_remote_version_via_raw",
+                   return_value="99.0.0"), \
+             patch("tsm.self_update._cleanup_old_exe"), \
+             patch("tsm.self_update._current_exe",
+                   return_value=fake_exe), \
+             patch("tsm.self_update._download_asset",
+                   side_effect=fake_download), \
+             patch("tsm.self_update._verify_authenticode",
+                   return_value=(True, "")), \
+             patch("tsm.self_update._swap_exe", return_value=True), \
+             patch("tsm.self_update._restart_service"):
+            result = check_for_update()
+        assert result is True
+
+    # ── Raw branch version ahead of release tag (dev branch bumped) ───
+    def test_raw_version_used_when_no_release_at_all(self, tmp_path):
+        """Some deployments update config.py on the branch without
+        cutting a GitHub Release. If /latest AND the full list both
+        come back empty, but raw config.py reports a newer VERSION,
+        we should detect an update is available (even though we can't
+        auto-apply it without an asset)."""
+        with patch("tsm.self_update._is_frozen", return_value=True), \
+             patch("tsm.self_update._fetch_latest_release",
+                   return_value=None), \
+             patch("tsm.self_update._fetch_all_releases",
+                   return_value=[]), \
+             patch("tsm.self_update._fetch_remote_version_via_raw",
+                   return_value="99.0.0"), \
+             patch("tsm.self_update._cleanup_old_exe"):
+            # No asset available -> cannot self-update, but must not
+            # crash and must correctly report "no asset" rather than
+            # "already up to date".
+            result = check_for_update()
+        assert result is False
+
+    # ── Draft-only releases list must not be used as a fallback ───────
+    def test_all_draft_releases_ignored(self):
+        fake_releases = [
+            {"tag_name": "v99.0.0", "draft": True, "assets": [],
+             "body": None, "html_url": None},
+        ]
+        with patch("tsm.self_update._is_frozen", return_value=True), \
+             patch("tsm.self_update._fetch_latest_release",
+                   return_value=None), \
+             patch("tsm.self_update._fetch_all_releases",
+                   return_value=fake_releases), \
+             patch("tsm.self_update._fetch_remote_version_via_raw",
+                   return_value=None), \
+             patch("tsm.self_update._cleanup_old_exe"):
+            assert check_for_update() is False
+
+    # ── cleanup_old_exe always runs first, even if everything else fails
+    def test_cleanup_old_exe_always_called_first(self):
+        with patch("tsm.self_update._is_frozen", return_value=False), \
+             patch("tsm.self_update._cleanup_old_exe") as mock_cleanup:
+            check_for_update()
+        mock_cleanup.assert_called_once()
 
     # ── Download fails ─────────────────────────────────────────────────
     def test_download_failure_returns_false(self, tmp_path):
@@ -329,8 +496,50 @@ class TestCheckForUpdate:
                    return_value=fake_exe), \
              patch("tsm.self_update._download_asset",
                    side_effect=fake_download), \
+             patch("tsm.self_update._verify_authenticode",
+                   return_value=(True, "")), \
              patch("tsm.self_update._swap_exe", return_value=False):
             assert check_for_update() is False
+
+    # ── Signature check fails → abort before swap ─────────────────────
+    def test_signature_check_failure_aborts_update(self, tmp_path):
+        """When _verify_authenticode returns (False, 'unsigned'),
+        the update must be aborted and the temp file deleted."""
+        fake_asset = {
+            "name": "TireStorageManager.exe",
+            "browser_download_url": "https://example.com/app.exe",
+            "size": 5_000_000,
+        }
+        fake_release = {
+            "tag_name": "v99.0.0",
+            "assets": [fake_asset],
+            "body": None,
+            "html_url": None,
+        }
+        fake_exe = tmp_path / "TireStorageManager.exe"
+        _make_exe(fake_exe)
+
+        def fake_download(url, dest):
+            _make_exe(dest)
+            return True
+
+        with patch("tsm.self_update._is_frozen", return_value=True), \
+             patch("tsm.self_update._fetch_latest_release",
+                   return_value=fake_release), \
+             patch("tsm.self_update._fetch_remote_version_via_raw",
+                   return_value="99.0.0"), \
+             patch("tsm.self_update._cleanup_old_exe"), \
+             patch("tsm.self_update._current_exe",
+                   return_value=fake_exe), \
+             patch("tsm.self_update._download_asset",
+                   side_effect=fake_download), \
+             patch("tsm.self_update._verify_authenticode",
+                   return_value=(False, "unsigned")), \
+             patch("tsm.self_update._swap_exe") as mock_swap:
+            result = check_for_update()
+        assert result is False
+        # swap must never be reached
+        mock_swap.assert_not_called()
 
     # ── Happy path ─────────────────────────────────────────────────────
     def test_happy_path_returns_true_and_restarts(self, tmp_path):
@@ -362,6 +571,8 @@ class TestCheckForUpdate:
                    return_value=fake_exe), \
              patch("tsm.self_update._download_asset",
                    side_effect=fake_download), \
+             patch("tsm.self_update._verify_authenticode",
+                   return_value=(True, "")), \
              patch("tsm.self_update._swap_exe",
                    return_value=True) as mock_swap, \
              patch("tsm.self_update._restart_service") as mock_restart:

@@ -57,6 +57,23 @@ SERVICE_NAME = os.environ.get("TSM_SERVICE_NAME", "TireStorageManager")
 # Timeout for HTTP requests (seconds)
 HTTP_TIMEOUT = 30
 
+# Sanity bounds for any EXE we are about to swap in (auto or manual)
+MIN_EXE_SIZE = 1_000_000               # 1 MB floor
+MAX_MANUAL_UPLOAD_SIZE = 300 * 1024 * 1024   # 300 MB ceiling
+
+# PE (Windows executable) magic bytes
+_PE_MZ_MAGIC = b"MZ"
+_PE_SIGNATURE = b"PE\x00\x00"
+
+# ── Authenticode signature verification (optional) ──────────────────
+# Set TSM_SIGNER_THUMBPRINT to the SHA-1 thumbprint of the code-signing
+# certificate used in CI.  When set, both auto-downloaded and manually
+# uploaded EXEs are rejected unless they carry a valid Authenticode
+# signature whose leaf certificate matches the thumbprint.
+# When unset (empty / not present), signature checks are skipped so
+# unsigned development builds keep working.
+SIGNER_THUMBPRINT: str = os.environ.get("TSM_SIGNER_THUMBPRINT", "").strip().upper()
+
 
 def _ssl_context() -> ssl.SSLContext:
     """Return an SSL context that trusts the OS certificate store.
@@ -85,6 +102,99 @@ def _is_frozen() -> bool:
 def _current_exe() -> Path:
     """Absolute path of the running .exe."""
     return Path(sys.executable).resolve()
+
+
+def _is_valid_pe_exe(path: Path) -> bool:
+    """Structural sanity check that *path* is a genuine Windows PE EXE.
+
+    Verifies the ``MZ`` header and the ``PE\\0\\0`` signature at the
+    offset stored in the MZ header (``e_lfanew``, a 4-byte
+    little-endian value at offset 0x3C).
+
+    This is NOT a code-signing / authenticity check — it only guards
+    against uploading a non-executable (or truncated/corrupt) file. It
+    is one layer of defense in depth alongside CSRF protection, the
+    explicit local file-picker action, and the size bounds checked by
+    the caller.
+    """
+    try:
+        with open(path, "rb") as f:
+            header = f.read(64)
+            if len(header) < 64 or header[:2] != _PE_MZ_MAGIC:
+                return False
+            e_lfanew = int.from_bytes(header[0x3C:0x40], "little")
+            # Sanity bound on the offset itself to avoid seeking to
+            # absurd positions on a malformed/truncated file.
+            if e_lfanew <= 0 or e_lfanew > 16 * 1024 * 1024:
+                return False
+            f.seek(e_lfanew)
+            return f.read(4) == _PE_SIGNATURE
+    except OSError:
+        return False
+
+
+def _verify_authenticode(path: Path) -> tuple[bool, str]:
+    """Verify that *path* carries a valid Authenticode signature.
+
+    When ``SIGNER_THUMBPRINT`` is configured, the function shells out to
+    PowerShell's ``Get-AuthenticodeSignature`` cmdlet (available on every
+    Windows install since PS 3.0 / Windows 8) and checks:
+
+    1. ``Status`` is ``Valid`` (signature intact, chain trusted).
+    2. The signing certificate's SHA-1 thumbprint matches
+       ``SIGNER_THUMBPRINT`` (pins to *our* certificate, not just *any*
+       valid signature).
+
+    Returns ``(True, "")`` on success or when verification is disabled
+    (thumbprint not configured, or not on Windows).
+    Returns ``(False, reason)`` on failure.
+    """
+    if not SIGNER_THUMBPRINT:
+        log.debug("Authenticode check skipped — no thumbprint configured.")
+        return True, ""
+
+    if sys.platform != "win32":
+        log.debug("Authenticode check skipped — not Windows.")
+        return True, ""
+
+    ps_script = (
+        f"$sig = Get-AuthenticodeSignature -FilePath '{path}';"
+        f"$sig.Status.ToString() + '|' + $sig.SignerCertificate.Thumbprint"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, text=True, timeout=30,
+        )
+        output = result.stdout.strip()
+        log.debug("Authenticode output: %r", output)
+
+        if "|" not in output:
+            log.warning("Unexpected authenticode output: %r", output)
+            return False, "unsigned"
+
+        status, thumbprint = output.split("|", 1)
+        status = status.strip()
+        thumbprint = (thumbprint or "").strip().upper()
+
+        if status != "Valid":
+            log.warning(
+                "Authenticode status '%s' for %s (expected 'Valid').",
+                status, path)
+            return False, "unsigned"
+
+        if thumbprint != SIGNER_THUMBPRINT:
+            log.warning(
+                "Thumbprint mismatch: got %s, expected %s.",
+                thumbprint, SIGNER_THUMBPRINT)
+            return False, "unsigned"
+
+        log.info("Authenticode signature valid (thumbprint %s).", thumbprint)
+        return True, ""
+
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        log.error("Authenticode verification failed: %s", exc)
+        return False, "unsigned"
 
 
 def _ver_tuple(v: str):
@@ -555,8 +665,17 @@ def check_for_update() -> bool:
             return False
 
         # Basic sanity: file should be > 1 MB for a PyInstaller EXE
-        if tmp_file.stat().st_size < 1_000_000:
+        if tmp_file.stat().st_size < MIN_EXE_SIZE:
             log.error("Downloaded file too small — aborting update.")
+            tmp_file.unlink(missing_ok=True)
+            return False
+
+        # Authenticode signature verification (when configured)
+        sig_ok, sig_reason = _verify_authenticode(tmp_file)
+        if not sig_ok:
+            log.error(
+                "Downloaded EXE failed signature verification — "
+                "aborting update (%s).", sig_reason)
             tmp_file.unlink(missing_ok=True)
             return False
 
@@ -578,3 +697,74 @@ def check_for_update() -> bool:
         log.error("Update failed: %s", e, exc_info=True)
         tmp_file.unlink(missing_ok=True)
         return False
+
+
+def apply_manual_update(
+    src_path: Path,
+    version_label: str = "",
+) -> tuple[bool, str]:
+    """Apply a manually uploaded EXE as an update.
+
+    Used by the Settings-page "manual/offline update" upload — for
+    servers whose network policy blocks outbound access to GitHub, an
+    admin can instead download the release EXE on any internet-connected
+    machine and upload it directly through the web UI.
+
+    *src_path* MUST already live on the same filesystem/drive as the
+    running EXE (the caller is responsible for saving the upload there)
+    because the swap uses an atomic rename, which cannot cross drives
+    on Windows.
+
+    Validates *src_path* (PE header + size bounds), swaps it in for the
+    running EXE, writes an update marker, and restarts the service.
+
+    The file at *src_path* is only consumed (renamed away) on success.
+    On any failure return, the caller is responsible for deleting it.
+
+    Returns ``(success, reason_code)`` where ``reason_code`` is one of:
+        "ok", "not_frozen", "missing_file", "invalid_pe",
+        "too_small", "too_large", "swap_failed"
+    """
+    if not _is_frozen():
+        log.debug("Not a frozen EXE — skipping manual update.")
+        return False, "not_frozen"
+
+    if not src_path.exists() or not src_path.is_file():
+        log.warning("Manual update file missing: %s", src_path)
+        return False, "missing_file"
+
+    size = src_path.stat().st_size
+    if size < MIN_EXE_SIZE:
+        log.warning("Manual update file too small (%d bytes).", size)
+        return False, "too_small"
+    if size > MAX_MANUAL_UPLOAD_SIZE:
+        log.warning("Manual update file too large (%d bytes).", size)
+        return False, "too_large"
+
+    if not _is_valid_pe_exe(src_path):
+        log.warning("Manual update file failed PE validation: %s", src_path)
+        return False, "invalid_pe"
+
+    # Authenticode signature verification (when configured)
+    sig_ok, sig_reason = _verify_authenticode(src_path)
+    if not sig_ok:
+        log.warning(
+            "Manual update file failed signature verification: %s",
+            src_path)
+        return False, "unsigned"
+
+    try:
+        from config import VERSION as local_version
+    except ImportError:
+        local_version = "0.0.0"
+
+    current = _current_exe()
+    if not _swap_exe(current, src_path):
+        return False, "swap_failed"
+
+    _write_update_marker(local_version, version_label.strip() or "manual")
+    log.info(
+        "Manual update applied (label=%s). Restarting service ...",
+        version_label or "manual")
+    _restart_service()
+    return True, "ok"

@@ -135,6 +135,40 @@ _CATALOGUE: dict[str, dict[str, str]] = {
         "de": "Update fehlgeschlagen: {e}",
         "en": "Update failed: {e}",
     },
+    "update_manual_success": {
+        "de": "Manuelles Update installiert — der Dienst wird neu gestartet.",
+        "en": "Manual update installed — the service will restart.",
+    },
+    "update_manual_no_file": {
+        "de": "Bitte eine Datei auswählen.",
+        "en": "Please select a file.",
+    },
+    "update_manual_invalid_ext": {
+        "de": "Nur .exe-Dateien werden akzeptiert.",
+        "en": "Only .exe files are accepted.",
+    },
+    "update_manual_invalid_file": {
+        "de": "Die Datei ist keine gültige TireStorageManager.exe "
+              "(Prüfung fehlgeschlagen oder Datei beschädigt).",
+        "en": "The file is not a valid TireStorageManager.exe "
+              "(validation failed or file corrupted).",
+    },
+    "update_manual_swap_failed": {
+        "de": "Datei konnte nicht ausgetauscht werden — läuft der Dienst "
+              "noch? Bitte erneut versuchen.",
+        "en": "Could not swap the file — is the service still running? "
+              "Please try again.",
+    },
+    "update_manual_unsigned": {
+        "de": "Die Datei trägt keine gültige Code-Signatur des erwarteten "
+              "Zertifikats. Bitte nur offizielle Releases verwenden.",
+        "en": "The file does not carry a valid code signature from the "
+              "expected certificate. Please use official releases only.",
+    },
+    "update_manual_failed": {
+        "de": "Hochladen fehlgeschlagen: {e}",
+        "en": "Upload failed: {e}",
+    },
 
     # ── Settings page labels ────────────────────────────────────
     "settings_title":           {"de": "Einstellungen",         "en": "Settings"},
@@ -192,6 +226,31 @@ _CATALOGUE: dict[str, dict[str, str]] = {
         "en": "Update now & restart",
     },
     "settings_release_notes":   {"de": "Änderungen:",           "en": "Release notes:"},
+    "settings_manual_update_title": {
+        "de": "Manuelles Update (Offline)",
+        "en": "Manual update (offline)",
+    },
+    "settings_manual_update_hint": {
+        "de": "Falls dieser Server keinen Internetzugriff auf GitHub hat: "
+              "Release-.exe auf einem anderen PC herunterladen und hier "
+              "hochladen.",
+        "en": "If this server has no internet access to GitHub: download "
+              "the release .exe on another PC and upload it here.",
+    },
+    "settings_manual_update_label_version": {
+        "de": "Versionsbezeichnung (optional)",
+        "en": "Version label (optional)",
+    },
+    "settings_manual_update_button": {
+        "de": "Hochladen & installieren",
+        "en": "Upload & install",
+    },
+    "settings_manual_update_confirm": {
+        "de": "Anwendung mit der hochgeladenen Datei ersetzen und Dienst "
+              "neu starten?",
+        "en": "Replace the application with the uploaded file and "
+              "restart the service?",
+    },
 
     # ── Index page ──────────────────────────────────────────────
     "index_title":              {"de": "Übersicht",             "en": "Overview"},

@@ -895,3 +895,236 @@ class TestUpdateSettingsUI:
         html = resp.data.decode()
         from config import VERSION
         assert f"v{VERSION}" in html
+
+
+# =========================================================
+#  Manual update upload tests
+# =========================================================
+class TestUpdateUpload:
+    """Tests for /settings/update-upload endpoint (manual offline
+    update via file upload)."""
+
+    def test_not_frozen_shows_info_flash(self, client, seed_settings):
+        token = _get_csrf(client)
+        with patch("tsm.routes._is_frozen", return_value=False):
+            resp = client.post("/settings/update-upload", data={
+                "_csrf_token": token,
+            }, follow_redirects=True)
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "EXE" in html or "installierte" in html
+
+    def test_no_file_shows_error(self, client, seed_settings):
+        token = _get_csrf(client)
+        with patch("tsm.routes._is_frozen", return_value=True):
+            resp = client.post("/settings/update-upload", data={
+                "_csrf_token": token,
+            }, follow_redirects=True)
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Datei" in html or "file" in html.lower()
+
+    def test_wrong_extension_rejected(self, client, seed_settings):
+        from io import BytesIO
+        token = _get_csrf(client)
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"hello"), "readme.txt"),
+        }
+        with patch("tsm.routes._is_frozen", return_value=True):
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert ".exe" in html.lower()
+
+    def test_missing_csrf_rejected(self, client, seed_settings):
+        from io import BytesIO
+        data = {
+            "update_file": (BytesIO(b"hello"), "app.exe"),
+        }
+        with patch("tsm.routes._is_frozen", return_value=True):
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+        # validate_csrf() should reject — either 400 or a redirect
+        assert resp.status_code in (400, 403, 302)
+
+    def test_successful_upload(self, client, seed_settings):
+        from io import BytesIO
+        from pathlib import Path as P
+        token = _get_csrf(client)
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"MZ" + b"\x00" * 100), "app.exe"),
+            "version_label": "1.10.1",
+        }
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes._current_exe",
+                   return_value=P(__file__).parent / "fake.exe"), \
+             patch("tsm.routes.apply_manual_update",
+                   return_value=(True, "ok")) as mock_apply:
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert ("installiert" in html or "installed" in html.lower()
+                or "success" in html.lower())
+        mock_apply.assert_called_once()
+        # version_label passed through
+        assert mock_apply.call_args[1].get("version_label") == "1.10.1" \
+            or mock_apply.call_args[0][1] == "1.10.1"
+
+    def test_apply_returns_swap_failed(self, client, seed_settings):
+        from io import BytesIO
+        from pathlib import Path as P
+        token = _get_csrf(client)
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"MZ" + b"\x00" * 100), "app.exe"),
+        }
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes._current_exe",
+                   return_value=P(__file__).parent / "fake.exe"), \
+             patch("tsm.routes.apply_manual_update",
+                   return_value=(False, "swap_failed")):
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert ("austauscht" in html or "swap" in html.lower()
+                or "Dienst" in html)
+
+    def test_apply_returns_unsigned(self, client, seed_settings):
+        from io import BytesIO
+        from pathlib import Path as P
+        token = _get_csrf(client)
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"MZ" + b"\x00" * 100), "app.exe"),
+        }
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes._current_exe",
+                   return_value=P(__file__).parent / "fake.exe"), \
+             patch("tsm.routes.apply_manual_update",
+                   return_value=(False, "unsigned")):
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert ("Signatur" in html or "signature" in html.lower()
+                or "Zertifikat" in html)
+
+    def test_apply_returns_invalid_pe(self, client, seed_settings):
+        from io import BytesIO
+        from pathlib import Path as P
+        token = _get_csrf(client)
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"NOT" + b"\x00" * 100), "app.exe"),
+        }
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes._current_exe",
+                   return_value=P(__file__).parent / "fake.exe"), \
+             patch("tsm.routes.apply_manual_update",
+                   return_value=(False, "invalid_pe")):
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert ("g\u00fcltige" in html or "valid" in html.lower()
+                or "besch\u00e4digt" in html)
+
+    def test_version_label_truncated(self, client, seed_settings):
+        """version_label is capped at 32 chars in the route."""
+        from io import BytesIO
+        from pathlib import Path as P
+        token = _get_csrf(client)
+        long_label = "a" * 100
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"MZ" + b"\x00" * 100), "app.exe"),
+            "version_label": long_label,
+        }
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes._current_exe",
+                   return_value=P(__file__).parent / "fake.exe"), \
+             patch("tsm.routes.apply_manual_update",
+                   return_value=(True, "ok")) as mock_apply:
+            client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        # The label the route passes should be truncated to 32 chars
+        passed_label = mock_apply.call_args[0][1] \
+            if len(mock_apply.call_args[0]) > 1 \
+            else mock_apply.call_args[1].get("version_label", "")
+        assert len(passed_label) <= 32
+
+    def test_empty_filename_rejected(self, client, seed_settings):
+        from io import BytesIO
+        token = _get_csrf(client)
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"MZ"), ""),
+        }
+        with patch("tsm.routes._is_frozen", return_value=True):
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+
+    def test_temp_file_cleaned_on_failure(self, client, seed_settings,
+                                          tmp_path):
+        """The temp file must be deleted even if apply_manual_update
+        returns failure."""
+        from io import BytesIO
+        token = _get_csrf(client)
+        data = {
+            "_csrf_token": token,
+            "update_file": (BytesIO(b"MZ" + b"\x00" * 100), "app.exe"),
+        }
+        with patch("tsm.routes._is_frozen", return_value=True), \
+             patch("tsm.routes._current_exe",
+                   return_value=tmp_path / "fake.exe"), \
+             patch("tsm.routes.apply_manual_update",
+                   return_value=(False, "too_small")):
+            resp = client.post(
+                "/settings/update-upload",
+                data=data,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        # No temp files should be left in tmp_path
+        import os
+        leftover = [f for f in os.listdir(tmp_path)
+                     if f.startswith("_manual_update_")]
+        assert leftover == []

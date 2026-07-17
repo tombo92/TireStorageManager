@@ -19,6 +19,7 @@ import logging as _logging
 import os
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 
 from flask import (
     abort,
@@ -33,6 +34,7 @@ from flask import (
     url_for,
 )
 from sqlalchemy.exc import IntegrityError
+from werkzeug.utils import secure_filename
 
 from config import BACKUP_DIR
 from tsm.backup_manager import export_csv_snapshot
@@ -55,7 +57,9 @@ from tsm.positions import (
     save_custom_positions,
 )
 from tsm.self_update import (
+    _current_exe,
     _is_frozen,
+    apply_manual_update,
     check_for_update,
     get_update_info,
     invalidate_update_cache,
@@ -710,6 +714,75 @@ def update_now():
     return redirect(url_for("settings"))
 
 
+# Reason codes from apply_manual_update() -> flash message keys
+_MANUAL_UPDATE_REASON_KEYS = {
+    "not_frozen": "update_exe_only",
+    "missing_file": "update_manual_invalid_file",
+    "too_small": "update_manual_invalid_file",
+    "too_large": "update_manual_invalid_file",
+    "invalid_pe": "update_manual_invalid_file",
+    "unsigned": "update_manual_unsigned",
+    "swap_failed": "update_manual_swap_failed",
+}
+
+
+def update_upload():
+    """Apply a manually uploaded EXE as an update (frozen EXE only).
+
+    For servers whose network policy blocks outbound access to GitHub:
+    an admin downloads the release EXE on any internet-connected
+    machine and uploads it here instead of relying on the automatic
+    checker.
+    """
+    validate_csrf()
+    if not _is_frozen():
+        flash(_("update_exe_only"), "info")
+        return redirect(url_for("settings"))
+
+    file = request.files.get("update_file")
+    if not file or not file.filename:
+        flash(_("update_manual_no_file"), "error")
+        return redirect(url_for("settings"))
+
+    filename = secure_filename(file.filename)
+    if not filename or not filename.lower().endswith(".exe"):
+        flash(_("update_manual_invalid_ext"), "error")
+        return redirect(url_for("settings"))
+
+    version_label = (request.form.get("version_label") or "").strip()[:32]
+
+    # Must land on the same drive/dir as the running EXE — the swap
+    # uses an atomic rename, which cannot cross filesystems on Windows.
+    install_dir = _current_exe().parent
+    tmp_path = install_dir / f"_manual_update_{os.getpid()}.exe"
+
+    try:
+        file.save(str(tmp_path))
+    except OSError as e:
+        _log.exception("Manual update upload save failed")
+        flash(_("update_manual_failed", e=e), "error")
+        return redirect(url_for("settings"))
+
+    try:
+        success, reason = apply_manual_update(tmp_path, version_label)
+    finally:
+        # apply_manual_update() only consumes tmp_path on success (it is
+        # renamed away by the swap); clean it up for every other outcome.
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+    if success:
+        flash(_("update_manual_success"), "success")
+    else:
+        flash(_(_MANUAL_UPDATE_REASON_KEYS.get(reason, "update_none")),
+              "error")
+
+    return redirect(url_for("settings"))
+
+
 # ========================================================
 # REGISTRATION
 # ========================================================
@@ -765,3 +838,5 @@ def register_routes(app) -> None:
                      api_update_check_refresh, methods=["POST"])
     app.add_url_rule("/settings/update-now", "update_now", update_now,
                      methods=["POST"])
+    app.add_url_rule("/settings/update-upload", "update_upload",
+                     update_upload, methods=["POST"])
