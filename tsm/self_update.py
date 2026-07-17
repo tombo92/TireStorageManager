@@ -142,13 +142,44 @@ def _fetch_latest_release() -> dict | None:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            log.debug("No releases found (404).")
+            log.debug("No releases found via /latest (404).")
         else:
             log.warning("GitHub API error: %s", e)
         return None
     except Exception as e:
         log.warning("Could not reach GitHub: %s", e)
         return None
+
+
+def _fetch_all_releases() -> list[dict]:
+    """Fetch all GitHub Releases and return the list (newest first).
+
+    This is the fallback when /releases/latest returns nothing (e.g.
+    pre-releases only, or version ordering issues).
+    """
+    url = f"https://api.github.com/repos/{OWNER}/{REPO}/releases?per_page=10"
+    req = _make_request(_nocache_url(url))
+    try:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        log.warning("Could not fetch releases list: %s", e)
+        return []
+
+
+def _find_highest_release(releases: list[dict]) -> dict | None:
+    """Find the release with the highest semver tag from a list."""
+    best = None
+    best_ver = (0, 0, 0)
+    for rel in releases:
+        if rel.get("draft"):
+            continue
+        tag = rel.get("tag_name", "")
+        ver = _ver_tuple(tag.lstrip("vV"))
+        if ver > best_ver:
+            best_ver = ver
+            best = rel
+    return best
 
 
 def _find_exe_asset(release: dict) -> dict | None:
@@ -355,6 +386,7 @@ def get_update_info() -> dict:
             "release_notes": str | None,    # markdown body from GitHub
             "release_url": str | None,       # HTML URL to the release page
             "frozen": bool,
+            "check_error": str | None,       # error message if check failed
         }
     Result is cached server-side for _UPDATE_INFO_TTL seconds.
     """
@@ -376,10 +408,23 @@ def get_update_info() -> dict:
         "release_notes": None,
         "release_url": None,
         "frozen": _is_frozen(),
+        "check_error": None,
     }
 
     try:
         release = _fetch_latest_release()
+
+        # Fallback: if /releases/latest returned nothing (pre-release
+        # only, private repo 404, etc.) try fetching the full list
+        if not release:
+            all_releases = _fetch_all_releases()
+            if all_releases:
+                release = _find_highest_release(all_releases)
+                if release:
+                    log.info(
+                        "Found release via full list: %s",
+                        release.get("tag_name"))
+
         if release:
             tag = release.get("tag_name", "")
             remote_version = tag.lstrip("vV")
@@ -389,11 +434,23 @@ def get_update_info() -> dict:
 
             if _ver_tuple(remote_version) > _ver_tuple(local_version):
                 result["update_available"] = True
+        else:
+            # Both methods failed — report error to the user
+            result["check_error"] = (
+                "Updateserver nicht erreichbar. "
+                "Bitte Internetverbindung prüfen."
+            )
+            log.warning(
+                "Update check failed: could not reach GitHub "
+                "(releases/latest and releases list both empty).")
     except Exception as e:
-        log.debug("get_update_info failed: %s", e)
+        log.warning("get_update_info failed: %s", e)
+        result["check_error"] = f"Fehler bei der Update-Prüfung: {e}"
 
-    _update_info_cache = result
-    _update_info_cache_ts = now
+    # Only cache successful results (don't cache errors for 10 min)
+    if not result["check_error"]:
+        _update_info_cache = result
+        _update_info_cache_ts = now
     return result
 
 
@@ -439,7 +496,16 @@ def check_for_update() -> bool:
         log.info("Latest release: %s (tag: %s)", remote_version, tag)
         asset = _find_exe_asset(release)
     else:
-        log.info("No GitHub Release found.")
+        log.info("No GitHub Release found via /latest — trying full list.")
+        all_releases = _fetch_all_releases()
+        if all_releases:
+            release = _find_highest_release(all_releases)
+            if release:
+                tag = release.get("tag_name", "")
+                remote_version = tag.lstrip("vV")
+                log.info("Found release via list: %s (tag: %s)",
+                         remote_version, tag)
+                asset = _find_exe_asset(release)
 
     # ── Fallback: read VERSION from raw config.py on branch ──
     # (same approach as tools/updater.py — useful for logging

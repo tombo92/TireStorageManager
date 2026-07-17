@@ -409,9 +409,23 @@
     var upToDateEl = document.getElementById('updateUpToDate');
     var updateNowForm = document.getElementById('updateNowForm');
     var releaseNotesDiv = document.getElementById('updateReleaseNotes');
+    var checkErrorEl = document.getElementById('updateCheckError');
 
     if (remoteEl && upToDateEl) {
-      if (data.update_available) {
+      // Hide error by default
+      if (checkErrorEl) checkErrorEl.classList.add('d-none');
+
+      if (data.check_error) {
+        // Show error state — do NOT show "up to date"
+        remoteEl.classList.add('d-none');
+        upToDateEl.classList.add('d-none');
+        if (updateNowForm) updateNowForm.classList.add('d-none');
+        if (releaseNotesDiv) releaseNotesDiv.classList.add('d-none');
+        if (checkErrorEl) {
+          checkErrorEl.textContent = data.check_error;
+          checkErrorEl.classList.remove('d-none');
+        }
+      } else if (data.update_available) {
         remoteEl.querySelector('strong').textContent = 'v' + data.remote_version;
         remoteEl.classList.remove('d-none');
         upToDateEl.classList.add('d-none');
@@ -474,7 +488,12 @@
             handleUpdateInfo(data);
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
-            if (!data.update_available) {
+            if (data.check_error) {
+              btn.innerHTML = '<i class="bi bi-exclamation-triangle text-warning"></i> Prüfung fehlgeschlagen';
+              setTimeout(function () {
+                btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';
+              }, 5000);
+            } else if (!data.update_available) {
               btn.innerHTML = '<i class="bi bi-check-circle text-success"></i> Aktuell';
               setTimeout(function () {
                 btn.innerHTML = '<i class="bi bi-search"></i> Jetzt prüfen';

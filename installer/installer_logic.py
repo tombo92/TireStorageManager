@@ -257,8 +257,15 @@ def deploy_nssm(
     install_dir: Path,
     log: Callable[[str], None] | None = None,
 ) -> Path:
-    """Step 2 – copy nssm.exe into *install_dir*. Returns dest path."""
+    """Step 2 – copy nssm.exe into *install_dir*. Returns dest path.
+
+    If the service is running (reinstall/upgrade scenario), nssm.exe will
+    be locked.  We stop the service first so the file handle is released.
+    """
     target = install_dir / "nssm.exe"
+    if target.exists():
+        # Service may hold nssm.exe open – stop it before overwriting.
+        stop_service(install_dir, log=log)
     if not copy_file(src, target, overwrite=True):
         raise RuntimeError("nssm.exe nicht im Payload gefunden.")
     if log:
